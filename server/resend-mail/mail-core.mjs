@@ -21,7 +21,7 @@ export function parseMail(text){
  const data={};for(const k of ['last','first','email','phone','street','zip','city','company','comment'])data[k]=found[k]||'';
  const mailto=data.email.match(/^([^\s<>]+@[^\s<>]+)\s*<mailto:([^<>]+)>$/i);if(mailto&&mailto[1].toLowerCase()===mailto[2].toLowerCase())data.email=mailto[1];
  if(data.email&&!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(data.email)){data.email='';issues.push('E-Mail-Adresse prüfen.');}
- if(found.gondola&&!/^(nein|no|false|0)$/i.test(found.gondola))issues.push('Gondelwunsch bitte manuell zuordnen.');
+ if(found.gondola&&!/^(nein|no|false|0)$/i.test(found.gondola)){data.gondola='Ja';issues.push('Gondelwunsch bitte manuell zuordnen.');}
  if(/\b(stornier\w*|absage|änderung|aenderung|verschieb\w*|annullier\w*)\b/i.test(text))issues.push('Mögliche Änderung oder Stornierung: manuell prüfen.');
  return {draft:{date,time,people,data},issues,complete:issues.length===0};
 }

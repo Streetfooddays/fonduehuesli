@@ -1,1 +1,9 @@
-{"name":"fonduehuesli-reservationen","private":true,"type":"module","scripts":{"test":"node --test core.test.mjs mail.test.mjs","build":"node --check public/app.mjs && node --check public/core.mjs && node --test core.test.mjs mail.test.mjs"}}
+{
+  "name": "fonduehuesli-reservationen",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test core.test.mjs mail.test.mjs confirmation.test.mjs confirmation-edge.test.mjs",
+    "build": "node --check public/app.mjs && node --check public/core.mjs && node --check public/confirmation-core.mjs && node --test core.test.mjs mail.test.mjs confirmation.test.mjs"
+  }
+}

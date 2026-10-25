@@ -14,3 +14,11 @@ test('service scopes include unknown time and do not assume departure after anot
  const rows=[booking('lunch','1','Bestätigt','12:00'),booking('dinner','2','Bestätigt','18:00'),booking('later','2','Bestätigt','20:00'),booking('unknown','3','Bestätigt','')];
  assert.equal(floorOccupancy(rows,day,'mittag').occupancy['2'].state,'free');assert.equal(floorOccupancy(rows,day,'abend').occupancy['1'].state,'free');assert.equal(floorOccupancy(rows,day,'abend').occupancy['3'].state,'confirmed');assert.deepEqual(floorOccupancy(rows,day,'abend').occupancy['2'].times,['18:00','20:00']);const html=floorPlan(rows,day);assert.ok(html.includes('18:00 / 20:00'));assert.ok(html.includes('Keine automatische Freigabe'));assert.ok(html.includes('data-floor-table="263"'));assert.ok(floorPlan(rows,'').includes('Datum ergänzen'));
 });
+
+test('reservation locator highlights only its exact tables, including multiple assignments',()=>{
+ const rows=[booking('a','4, 5')];const html=floorPlan(rows,day,'abend','4, 5');
+ assert.equal((html.match(/class="floor-locator"/g)||[]).length,2);
+ assert.ok(html.includes('Blau blinkend: Tisch 4, 5 dieser Reservation.'));
+ assert.equal((floorPlan(rows,day,'abend','').match(/class="floor-locator"/g)||[]).length,0);
+ assert.equal((floorPlan(rows,day,'abend','Gondel 1').match(/class="floor-locator"/g)||[]).length,0);
+});

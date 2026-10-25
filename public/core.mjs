@@ -12,3 +12,9 @@ export function csv(rows) {
 export function canConfirm(rows,id,people,period) {return period==='mittag'||rows.filter(r=>r.id!==id&&r.status==='Bestätigt'&&r.period!=='mittag').reduce((n,r)=>n+Number(r.people),0)+people<=70;}
 export function period(time){return !time?'ungeklaert':time<'16:00'?'mittag':'abend';}
 export function escapeHTML(v) {return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+
+export function bookingSummary(rows) {
+  const active=rows.filter(r=>r.status!=="Storniert");
+  const people=active.reduce((sum,r)=>sum+Number(r.people),0);
+  return {reservations:active.length,people,revenue:people*65};
+}

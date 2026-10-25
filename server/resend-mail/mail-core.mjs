@@ -32,3 +32,7 @@ export async function verifySignature(payload,headers,secret,now=Date.now()/1000
   for(const part of sig.split(' ')){if(!part.startsWith('v1,'))continue;try{const signature=Uint8Array.from(atob(part.slice(3)),c=>c.charCodeAt(0));if(await crypto.subtle.verify('HMAC',key,signature,data))return true;}catch{}}
  }catch{}return false;
 }
+
+export function reservationCandidate(parsed){
+ const d=parsed.draft;return !!(d.date&&d.people&&(d.data.last||d.data.first)&&!parsed.issues.some(s=>/Mehrere Angaben|Änderung|Stornierung|gekürzt/.test(s)));
+}

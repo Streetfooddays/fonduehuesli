@@ -1,5 +1,5 @@
 import {createClient} from 'npm:@supabase/supabase-js@2.118.0';
-import {parseMail,htmlText,verifySignature} from './mail-core.mjs';
+import {parseMail,htmlText,verifySignature,reservationCandidate} from './mail-core.mjs';
 const ORIGIN='https://fonduehuesli-reservationen.onrender.com';
 const RECIPIENT='reservation@uesheuante.resend.app';
 const cors={'Access-Control-Allow-Origin':ORIGIN,'Access-Control-Allow-Headers':'authorization,apikey,content-type','Access-Control-Allow-Methods':'POST,OPTIONS','Cache-Control':'no-store'};
@@ -29,7 +29,7 @@ Deno.serve(async(req:Request)=>{
    if(fullText.length>60000){parsed.issues.push('Mailtext gekürzt: Originalmail im Postfach prüfen.');parsed.complete=false;}
    if((mail.attachments||[]).some((a:any)=>a.content_disposition!=='inline')){parsed.issues.push('Anhänge im Originalpostfach prüfen.');parsed.complete=false;}
    if(/\b(storn|absage|änderung|aenderung|verschieb|annull)/i.test(mail.subject||'')){parsed.issues.push('Betreff weist auf eine Änderung oder Stornierung hin.');parsed.complete=false;}
-   const result=await rpc('mail_ingest',{p:{id,message_id:String(mail.message_id||''),sender:String(mail.from||''),subject:String(mail.subject||''),body:text,...parsed}});
+   const result=await rpc('mail_ingest',{p:{id,message_id:String(mail.message_id||''),sender:String(mail.from||''),subject:String(mail.subject||''),body:text,...parsed,candidate:reservationCandidate(parsed)}});
    return answer(result);
   }
   const jwt=req.headers.get('Authorization')?.replace(/^Bearer /,'');if(!jwt)return answer({error:'Bitte anmelden.'},401);

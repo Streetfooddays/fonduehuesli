@@ -1,7 +1,7 @@
 export function guest(r) { try { return JSON.parse(r.data || '{}'); } catch { return {}; } }
 export function totals(rows) {
-  const result={mittag:0,abend:0,ungeklaert:0,offen:0,storniert:0};
-  for(const r of rows) { if(r.status==='Bestätigt') result[r.period]=(result[r.period]||0)+Number(r.people); else if(r.status==='Offen') result.offen+=Number(r.people); else result.storniert+=Number(r.people); }
+  const result={mittag:0,abend:0,ungeklaert:0,offen:0,storniert:0,rueckfrage:0};
+  for(const r of rows) { if(r.status==='Bestätigt') result[r.period]=(result[r.period]||0)+Number(r.people); else if(r.status==='Offen') result.offen+=Number(r.people); else if(r.status==='Rückfrage nötig') result.rueckfrage+=Number(r.people); else result.storniert+=Number(r.people); }
   return result;
 }
 export function csv(rows) {

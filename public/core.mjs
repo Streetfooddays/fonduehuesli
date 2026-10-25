@@ -18,3 +18,14 @@ export function bookingSummary(rows) {
   const people=active.reduce((sum,r)=>sum+Number(r.people),0);
   return {reservations:active.length,people,revenue:people*65};
 }
+
+export function dayOccupancy(rows,date) {
+  const active=rows.filter(r=>r.date===date&&['Offen','Rückfrage nötig','Bestätigt'].includes(r.status));
+  const slots=new Map();
+  for(const r of active){
+    const time=/^([01]\d|2[0-3]):[0-5]\d(?::[0-5]\d)?$/.test(r.time||'')?r.time.slice(0,5):'';
+    if(!slots.has(time))slots.set(time,{time,confirmed:0,pending:0});
+    slots.get(time)[r.status==='Bestätigt'?'confirmed':'pending']+=Number(r.people);
+  }
+  return {reservations:active.length,people:active.reduce((n,r)=>n+Number(r.people),0),slots:[...slots.values()].sort((a,b)=>(a.time||'99').localeCompare(b.time||'99'))};
+}

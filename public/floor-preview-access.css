@@ -1,0 +1,2 @@
+/* Hover previews must never intercept reservation actions. */
+.floor-hover,.floor-hover *{pointer-events:none!important}

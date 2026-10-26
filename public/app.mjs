@@ -112,13 +112,16 @@ function dailyFloorPlan(){return `<section class="daily-floor"><div class="toolb
 function openFloorPlan(day,scope='all',highlightTable=''){if(!day){notice('Zuerst das Reservationsdatum ergänzen.');return;}hideFloorPreview();dialog.classList.add('floor-dialog');dialog.onclose=()=>dialog.classList.remove('floor-dialog');dialog.innerHTML=`<div class="dialog-head"><h2>Tischbelegung</h2><button class="quiet" id="close-floor" aria-label="Schliessen">✕</button></div>${floorPlan(rows,day,['mittag','abend'].includes(scope)?scope:'all',highlightTable)}`;$('#close-floor').onclick=()=>dialog.close();bindFloorPlans(dialog,rows);if(!dialog.open)dialog.showModal();}
 let floorPreviewTimer=null;
 function hideFloorPreview(){clearTimeout(floorPreviewTimer);const pane=document.querySelector('#floor-hover');if(pane)pane.hidden=true;}
-function showFloorPreview(day,scope,highlightTable=''){if(!day)return;clearTimeout(floorPreviewTimer);let pane=document.querySelector('#floor-hover');if(!pane){pane=document.createElement('aside');pane.id='floor-hover';pane.className='floor-hover';pane.setAttribute('aria-label','Tischplan zur Anfrage');document.body.append(pane);pane.onmouseenter=()=>clearTimeout(floorPreviewTimer);pane.onmouseleave=()=>{floorPreviewTimer=setTimeout(hideFloorPreview,250);};}
- pane.innerHTML=`<div class="floor-hover-head"><strong>Tischplan zur Reservation</strong><button class="quiet small" data-floor-hover-close aria-label="Tischplan schliessen">✕</button></div>${floorPlan(rows,day,['mittag','abend'].includes(scope)?scope:'all',highlightTable)}`;pane.hidden=false;pane.querySelector('[data-floor-hover-close]').onclick=hideFloorPreview;bindFloorPlans(pane,rows);
+function showFloorPreview(day,scope,highlightTable=''){if(!day||dialog.open)return;clearTimeout(floorPreviewTimer);let pane=document.querySelector('#floor-hover');if(!pane){pane=document.createElement('aside');pane.id='floor-hover';pane.className='floor-hover';pane.inert=true;pane.setAttribute('aria-hidden','true');document.body.append(pane);}
+ pane.innerHTML=`<div class="floor-hover-head"><strong>Tischplan zur Reservation</strong><small>Über «Tischplan» vergrössern</small></div>${floorPlan(rows,day,['mittag','abend'].includes(scope)?scope:'all',highlightTable)}`;pane.hidden=false;
 }
 function bindFloorPreviews(){
  document.querySelectorAll('[data-open-floor]').forEach(b=>b.onclick=()=>openFloorPlan(b.dataset.openFloor,b.dataset.openFloorScope,b.dataset.openFloorTable));
  document.querySelectorAll('[data-floor-preview-day]').forEach(target=>{
-  target.onmouseenter=()=>{if(!window.matchMedia('(hover: hover)').matches||dialog.open||target.querySelector('[data-table-inline]:focus, [data-arrival]:focus'))return;clearTimeout(floorPreviewTimer);floorPreviewTimer=setTimeout(()=>showFloorPreview(target.dataset.floorPreviewDay,target.dataset.floorPreviewScope,target.dataset.floorPreviewTable),220);};
+  target.onmouseenter=()=>{if(!window.matchMedia('(hover: hover)').matches||dialog.open||target.querySelector('button:focus, input:focus, select:focus, textarea:focus, a:focus'))return;clearTimeout(floorPreviewTimer);floorPreviewTimer=setTimeout(()=>showFloorPreview(target.dataset.floorPreviewDay,target.dataset.floorPreviewScope,target.dataset.floorPreviewTable),220);};
+  target.onmouseover=ev=>{if(ev.target.closest('button, input, select, textarea, a, label'))hideFloorPreview();};
+  target.onfocusin=hideFloorPreview;
+  target.onpointerdown=hideFloorPreview;
   target.onmouseleave=()=>{clearTimeout(floorPreviewTimer);floorPreviewTimer=setTimeout(hideFloorPreview,250);};
  });
  document.addEventListener('keydown',floorEscape);

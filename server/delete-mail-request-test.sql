@@ -1,0 +1,31 @@
+begin;
+do $test$
+declare uid uuid; blocked boolean;
+begin
+ select t.user_id into uid from public.team_members t join auth.users u on u.id=t.user_id where t.active and u.email_confirmed_at is not null limit 1;
+ if uid is null then raise exception 'Test requires an active verified member';end if;
+ insert into public.reservations(id,date,time,period,people,data,status,source) values('test-delete-request-booking','2099-01-01','19:00','abend',2,'{}','Offen','Test');
+ insert into public.mail_inbox(id,sender,subject,body,state,reservation_id) values('test-delete-request-mail','test@example.invalid','Synthetic test','','imported','test-delete-request-booking'),('test-delete-request-unlinked','test@example.invalid','Synthetic test','','review',null);
+ perform set_config('request.jwt.claims','{}',true);
+ blocked:=false;begin perform public.delete_mail_request('{"id":"test-delete-request-unlinked"}');exception when insufficient_privilege then blocked:=true;end;
+ assert blocked,'Unauthenticated caller must be rejected';
+ perform set_config('request.jwt.claims',jsonb_build_object('sub',uid,'role','authenticated')::text,true);
+ blocked:=false;begin perform public.delete_mail_request('{"id":"test-delete-request-mail","revision":0}');exception when serialization_failure then blocked:=true;end;
+ assert blocked,'Changed association must be rejected';
+ blocked:=false;begin perform public.delete_mail_request('{"id":"test-delete-request-mail","reservation_id":"test-delete-request-booking","revision":9}');exception when serialization_failure then blocked:=true;end;
+ assert blocked,'Stale revision must be rejected';
+ update public.reservations set status='Bestätigt' where id='test-delete-request-booking';
+ blocked:=false;begin perform public.delete_mail_request('{"id":"test-delete-request-mail","reservation_id":"test-delete-request-booking","revision":0}');exception when raise_exception then blocked:=true;end;
+ assert blocked,'Confirmed booking must be protected';
+ update public.reservations set status='Offen',arrived=true where id='test-delete-request-booking';
+ blocked:=false;begin perform public.delete_mail_request('{"id":"test-delete-request-mail","reservation_id":"test-delete-request-booking","revision":0}');exception when raise_exception then blocked:=true;end;
+ assert blocked,'Arrived booking must be protected';
+ update public.reservations set arrived=false where id='test-delete-request-booking';
+ perform public.delete_mail_request('{"id":"test-delete-request-mail","reservation_id":"test-delete-request-booking","revision":0}');
+ assert (select status='Storniert' and revision=1 from public.reservations where id='test-delete-request-booking'),'Provisional booking must be cancelled';
+ assert (select state='ignored' from public.mail_inbox where id='test-delete-request-mail'),'Request must be archived';
+ perform public.delete_mail_request('{"id":"test-delete-request-unlinked"}');
+ assert (select state='ignored' from public.mail_inbox where id='test-delete-request-unlinked'),'Unlinked request must be archived';
+ assert not exists(select 1 from public.mail_outbox where reservation_id='test-delete-request-booking'),'Delete must never queue an email';
+end $test$;
+rollback;

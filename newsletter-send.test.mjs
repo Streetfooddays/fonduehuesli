@@ -18,3 +18,13 @@ test('imports stay unapproved and existing approval is not overwritten',()=>{
  const added=importEmails('A@example.com;a@example.com;reservation@fonduehuesli.ch','test');assert.equal(added.length,1);assert.equal(added[0].approved,false);
  assert.equal(mergeContacts([{email:'a@example.com',approved:true}],added)[0].approved,true);
 });
+test('promotion sections stay ordered, escape text and match preview and plain text',async()=>{
+ const {newsletterHTML}=await import('./public/newsletter.mjs');
+ const draft={...DEFAULT_NEWSLETTER,nominationTitle:'Nomination <script>',nominationText:'Danke!',nominationUrl:'https://www.blick.ch/',shopTitle:'Fondue zuhause',shopText:'35 Sorten',shopLogo:'https://www.artoffondue.ch/logo.png',shopImage1:'https://www.artoffondue.ch/fondue.jpg',shopImage2:'https://www.artoffondue.ch/raclette.jpg',shopUrl:'https://www.artoffondue.ch/',closing:'Bis bald'};
+ const m=messages({draft,recipients:[{email:'a@example.com',token}]},'https://example.com/newsletter')[0];
+ assert.ok(m.html.indexOf('Nomination &lt;script&gt;')<m.html.indexOf('Fondue zuhause'));
+ assert.ok(m.html.includes('raclette.jpg'));assert.ok(!m.html.includes('<script>'));
+ assert.equal(m.html,newsletterHTML({...draft,unsubscribe:'https://example.com/newsletter/unsubscribe?token='+token}));
+ assert.ok(m.text.includes(draft.nominationUrl));assert.ok(m.text.includes(draft.shopText));
+ assert.throws(()=>validateDraft({...draft,shopImage1:'javascript:alert(1)'}));
+});

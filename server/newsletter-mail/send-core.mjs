@@ -5,7 +5,7 @@ export function validateDraft(d){
  if(!d.subject.trim()||/[\r\n]/.test(d.subject)||!d.title.trim()||!d.body.trim()||!d.signature.trim())throw Error('Betreff, Überschrift, Nachricht und Absender ausfüllen.');
  for(const k of ['url','image'])if(d[k]&&!/^https:\/\//i.test(d[k]))throw Error('Bitte vollständige HTTPS-Adressen verwenden.');
  for(const [key,max] of Object.entries(EXTRA_NEWSLETTER_FIELDS))if(d[key]!==undefined&&(typeof d[key]!=='string'||d[key].length>max))throw Error('Newsletterfeld prüfen: '+key);
- for(const key of ['nominationUrl','shopUrl','shopLogo','shopImage1','shopImage2'])if(d[key]&&!/^https:\/\//i.test(d[key]))throw Error('Bitte vollständige HTTPS-Adressen verwenden.');
+ for(const key of ['menuImage','nominationUrl','shopUrl','shopLogo','shopImage1','shopImage2'])if(d[key]&&!/^https:\/\//i.test(d[key]))throw Error('Bitte vollständige HTTPS-Adressen verwenden.');
  return d;
 }
 export function messages(batch,endpoint){

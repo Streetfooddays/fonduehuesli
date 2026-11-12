@@ -1,4 +1,5 @@
 import {createClient} from 'npm:@supabase/supabase-js@2.118.0';
+import {runAutomaticConfirmation,FROM} from './automatic-core.mjs';
 import {parseMail,htmlText,verifySignature,reservationCandidate} from './mail-core.mjs';
 const ORIGIN='https://fonduehuesli-reservationen.onrender.com';
 const RECIPIENT='reservation@uesheuante.resend.app';
@@ -8,8 +9,8 @@ const url=Deno.env.get('SUPABASE_URL')!;
 const admin=createClient(url,Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,{auth:{persistSession:false,autoRefreshToken:false}});
 const endpoint=url+'/functions/v1/resend-mail';
 async function rpc(name:string,p?:unknown){const {data,error}=await admin.rpc(name,p);if(error)throw Error('Daten konnten nicht gespeichert werden.');return data;}
-async function api(key:string,path:string,method='GET',body?:unknown){
- const r=await fetch('https://api.resend.com'+path,{method,headers:{Authorization:'Bearer '+key,'Content-Type':'application/json'},body:body===undefined?undefined:JSON.stringify(body),signal:AbortSignal.timeout(15000)});
+async function api(key:string,path:string,method='GET',body?:unknown,id?:string){
+ const r=await fetch('https://api.resend.com'+path,{method,headers:{Authorization:'Bearer '+key,'Content-Type':'application/json',...(id?{'Idempotency-Key':'reservation-confirmation/'+id}:{})},body:body===undefined?undefined:JSON.stringify(body),signal:AbortSignal.timeout(15000)});
  if(!r.ok)throw Error(r.status===401||r.status===403?'Resend-Schlüssel oder Berechtigungen prüfen.':'Resend ist momentan nicht erreichbar. Bitte erneut versuchen.');return r.json();
 }
 Deno.serve(async(req:Request)=>{
@@ -30,7 +31,15 @@ Deno.serve(async(req:Request)=>{
    if((mail.attachments||[]).some((a:any)=>a.content_disposition!=='inline')){parsed.issues.push('Anhänge im Originalpostfach prüfen.');parsed.complete=false;}
    if(/\b(storn|absage|änderung|aenderung|verschieb|annull)/i.test(mail.subject||'')){parsed.issues.push('Betreff weist auf eine Änderung oder Stornierung hin.');parsed.complete=false;}
    const result=await rpc('mail_ingest',{p:{id,message_id:String(mail.message_id||''),sender:String(mail.from||''),subject:String(mail.subject||''),body:text,...parsed,candidate:reservationCandidate(parsed)}});
-   return answer(result);
+   // Prepared automation is gated by persistent configuration (initially disabled).
+   // Any automation problem leaves the received request available for manual handling.
+   let automatic;
+   try{automatic=await runAutomaticConfirmation(id,{rpc,domainReady:async()=>{
+    const domains=await api(c.api_key,'/domains'),domain=(domains.data||[]).find((d:any)=>d.name==='fonduehuesli.ch');if(!domain)return false;
+    const detail=await api(c.api_key,'/domains/'+domain.id);return detail.status==='verified'&&detail.capabilities?.sending!=='disabled';
+   },send:async(o:any)=>api(c.api_key,'/emails','POST',{from:FROM,to:[o.recipient],reply_to:'reservation@fonduehuesli.ch',subject:o.subject,text:o.message_text,html:o.message_html},o.id)});}
+   catch{automatic={state:'manual'};}
+   return answer({...result,automatic});
   }
   const jwt=req.headers.get('Authorization')?.replace(/^Bearer /,'');if(!jwt)return answer({error:'Bitte anmelden.'},401);
   const {data:{user},error}=await admin.auth.getUser(jwt);if(error||!user?.email_confirmed_at)return answer({error:'Bitte erneut anmelden.'},401);

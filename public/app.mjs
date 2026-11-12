@@ -15,7 +15,7 @@ try{session=JSON.parse(sessionStorage.getItem('fh-session')||'null');}catch{}
 const fmt=d=>new Intl.DateTimeFormat('de-CH',{weekday:'short',day:'2-digit',month:'2-digit',year:'numeric'}).format(new Date(d+'T12:00:00'));
 function notice(s){$('#notice').textContent=s;clearTimeout(notice.timer);notice.timer=setTimeout(()=>$('#notice').textContent='',7000);}
 function keep(s){session=s?.access_token?{...s,expires_at:s.expires_at||Math.floor(Date.now()/1000)+s.expires_in}:null;if(session)sessionStorage.setItem('fh-session',JSON.stringify(session));else sessionStorage.removeItem('fh-session');}
-function clear(){hideFloorPreview();document.querySelector('#floor-hover')?.remove();keep(null);member=null;rows=[];days=[];inbox=[];outbox=[];dialog.close();}
+function clear(){hideFloorPreview(true);document.querySelector('#floor-hover')?.remove();keep(null);member=null;rows=[];days=[];inbox=[];outbox=[];dialog.close();}
 async function req(path,{method='GET',body,auth=true,retry=true}={}){
   if(auth&&session&&session.expires_at<Date.now()/1000+45){if(!refreshing)refreshing=req('/auth/v1/token?grant_type=refresh_token',{method:'POST',body:{refresh_token:session.refresh_token},auth:false}).then(keep).catch(err=>{clear();renderAuth();throw err;}).finally(()=>refreshing=null);await refreshing;}
   const headers={apikey:KEY,'Content-Type':'application/json'};if(auth&&session)headers.Authorization='Bearer '+session.access_token;
@@ -26,6 +26,7 @@ async function req(path,{method='GET',body,auth=true,retry=true}={}){
 async function rpc(name,body={}){return req('/rest/v1/rpc/'+name,{method:'POST',body});}
 function field(name,label,value='',type='text',attrs=''){return `<label>${label}<input name="${name}" type="${type}" value="${e(value)}" ${attrs}></label>`;}
 function renderAuth(mode='login',message=''){
+ hideFloorPreview(true);
  app.innerHTML=`<main class="login"><div class="brand">Fonduehüsli<span>BÜLACH · RESERVATIONSBUCH</span></div><section class="login-card"><p class="eyebrow">WILLKOMMEN IM TEAM</p><h1>${mode==='password'?'Dein neues Passwort.':mode==='signup'?'Deinen Zugang einrichten.':mode==='verify'?'E-Mail bestätigen.':'Ein guter Abend beginnt mit Übersicht.'}</h1><p>${mode==='password'?'Lege dein persönliches Passwort fest.':mode==='signup'?'Für bereits freigeschaltete Teammitglieder. Bestätige anschliessend deine E-Mail-Adresse.':mode==='verify'?'Kopiere den Bestätigungslink aus deiner E-Mail hierher, falls die Weiterleitung nicht funktioniert hat.':'Gäste erfassen, Tische planen und persönlich bestätigen.'}</p><form id="auth" class="stack">${mode==='verify'?field('link','Bestätigungslink','','url','required autocomplete="off"'):mode!=='password'?field('email','E-Mail-Adresse','','email','required autocomplete="username"'):''}${mode!=='verify'?field('password','Passwort','','password',`required minlength="10" autocomplete="${mode==='login'?'current-password':'new-password'}"`):''}${mode==='password'||mode==='signup'?field('repeat','Passwort wiederholen','','password','required minlength="10" autocomplete="new-password"'):''}<p id="auth-message" class="${message?'hint':''}" role="status">${e(message)}</p><button>${mode==='password'?'Passwort speichern':mode==='signup'?'Zugang einrichten':mode==='verify'?'E-Mail bestätigen':'Anmelden →'}</button></form><div class="auth-switch">${mode!=='login'?'<button class="quiet small" data-mode="login">Zur Anmeldung</button>':'<button class="quiet small" data-mode="signup">Erstzugang einrichten</button><button class="quiet small" id="forgot">Passwort vergessen?</button>'}${mode==='signup'?'<button class="quiet small" data-mode="verify">Bestätigungslink eingeben</button>':''}</div><p class="footer">Geschützter Teamzugang · Nur freigeschaltete Benutzer erhalten Zugriff.</p></section></main>`;
  document.querySelectorAll('[data-mode]').forEach(b=>b.onclick=()=>renderAuth(b.dataset.mode));
  if($('#forgot'))$('#forgot').onclick=()=>notice('Bitte die Administration um einen neuen Passwortlink bitten.');
@@ -135,30 +136,54 @@ function openFloorPlan(day,scope='all',highlightTable=''){if(!day){notice('Zuers
  bindTableDragging($('#movable-floor'),positions,async(number,position)=>{const message=$('#layout-message');message.textContent='Position wird gespeichert …';$('#move-tables').disabled=true;$('#close-floor').disabled=true;try{const previous=floorLayouts.find(l=>l.date===day);const saved=await rpc('save_floor_position',{p:{date:day,number,...position,revision:previous?.revision||0}});floorLayouts=floorLayouts.filter(l=>l.date!==day).concat(saved);setFloorLayouts(floorLayouts);if(dialog.open)draw();}catch(err){message.textContent=err.message;throw err;}finally{if($('#move-tables'))$('#move-tables').disabled=false;if($('#close-floor'))$('#close-floor').disabled=false;}});
  };draw();if(!dialog.open)dialog.showModal();}
 
-let floorPreviewTimer=null;
-function hideFloorPreview(){clearTimeout(floorPreviewTimer);const pane=document.querySelector('#floor-hover');if(pane)pane.hidden=true;}
-function showFloorPreview(day,scope,highlightTable=''){if(!day||dialog.open)return;clearTimeout(floorPreviewTimer);let pane=document.querySelector('#floor-hover');if(!pane){pane=document.createElement('aside');pane.id='floor-hover';pane.className='floor-hover';pane.inert=true;pane.setAttribute('aria-hidden','true');document.body.append(pane);}
- pane.innerHTML=`<div class="floor-hover-head"><strong>Tischplan zur Reservation</strong><small>Über «Tischplan» vergrössern</small></div>${floorPlan(rows,day,['mittag','abend'].includes(scope)?scope:'all',highlightTable)}`;pane.hidden=false;
+let floorPreviewTimer=null,floorPreviewState=null;
+const floorDockAvailable=()=>window.matchMedia('(min-width: 1100px)').matches;
+function syncFloorDock(){
+ if(floorDockAvailable()&&!document.querySelector('#floor-hover')&&['day','all','pending'].includes(view)){const first=document.querySelector('[data-floor-preview-day]');if(view==='day')showFloorPreview(date,floorScope);else if(first)showFloorPreview(first.dataset.floorPreviewDay,first.dataset.floorPreviewScope,first.dataset.floorPreviewTable);return;}
+ const pane=document.querySelector('#floor-hover');
+ document.body.classList.toggle('floor-docked',!!pane&&!pane.hidden&&floorDockAvailable()&&['day','all','pending'].includes(view));
 }
+window.addEventListener('resize',syncFloorDock);
+function hideFloorPreview(force=false){
+ clearTimeout(floorPreviewTimer);
+ if(!force&&['day','all','pending'].includes(view))return;
+ const pane=document.querySelector('#floor-hover');if(pane)pane.hidden=true;
+ document.body.classList.remove('floor-docked');
+}
+function showFloorPreview(day,scope,highlightTable=''){
+ if(!day||dialog.open||!floorDockAvailable())return;
+ clearTimeout(floorPreviewTimer);floorPreviewState={day,scope,highlightTable};
+ let pane=document.querySelector('#floor-hover');
+ if(!pane){pane=document.createElement('aside');pane.id='floor-hover';pane.className='floor-hover';pane.setAttribute('aria-label','Fester Tischplan zur Reservation');document.body.append(pane);}
+ pane.innerHTML=`<div class="floor-hover-head"><strong>Tischplan zur Reservation</strong><button type="button" class="secondary small" id="dock-enlarge">Vergrössern</button></div><label class="dock-scope">Belegung <select id="dock-scope">${[['all','Ganzer Tag'],['mittag','Mittag'],['abend','Abend']].map(([v,label])=>`<option value="${v}" ${scope===v?'selected':''}>${label}</option>`).join('')}</select></label>${floorPlan(rows,day,['mittag','abend'].includes(scope)?scope:'all',highlightTable)}`;
+ pane.hidden=false;syncFloorDock();bindFloorPlans(pane,rows);
+ pane.querySelector('#dock-enlarge').onclick=()=>openFloorPlan(day,scope,highlightTable);
+ pane.querySelector('#dock-scope').onchange=ev=>{if(view==='day'&&day===date)floorScope=ev.target.value;showFloorPreview(day,ev.target.value,highlightTable);};
+}
+function refreshFloorPreview(){if(floorPreviewState)showFloorPreview(floorPreviewState.day,floorPreviewState.scope,floorPreviewState.highlightTable);}
 function bindFloorPreviews(){
- document.querySelectorAll('[data-open-floor]').forEach(b=>b.onclick=()=>openFloorPlan(b.dataset.openFloor,b.dataset.openFloorScope,b.dataset.openFloorTable));
- document.querySelectorAll('[data-floor-preview-day]').forEach(target=>{
-  target.onmouseenter=()=>{if(!window.matchMedia('(hover: hover)').matches||dialog.open||target.querySelector('button:focus, input:focus, select:focus, textarea:focus, a:focus'))return;clearTimeout(floorPreviewTimer);floorPreviewTimer=setTimeout(()=>showFloorPreview(target.dataset.floorPreviewDay,target.dataset.floorPreviewScope,target.dataset.floorPreviewTable),220);};
-  target.onmouseover=ev=>{if(ev.target.closest('button, input, select, textarea, a, label, summary'))hideFloorPreview();};
-  target.onfocusin=hideFloorPreview;
-  target.onpointerdown=hideFloorPreview;
-  target.onmouseleave=()=>{clearTimeout(floorPreviewTimer);floorPreviewTimer=setTimeout(hideFloorPreview,250);};
+ document.querySelectorAll('[data-open-floor]').forEach(b=>b.onclick=()=>{
+  if(floorDockAvailable())showFloorPreview(b.dataset.openFloor,b.dataset.openFloorScope,b.dataset.openFloorTable);
+  else openFloorPlan(b.dataset.openFloor,b.dataset.openFloorScope,b.dataset.openFloorTable);
  });
- document.addEventListener('keydown',floorEscape);
+ document.querySelectorAll('[data-floor-preview-day]').forEach(target=>{
+  const show=()=>showFloorPreview(target.dataset.floorPreviewDay,target.dataset.floorPreviewScope,target.dataset.floorPreviewTable);
+  target.onmouseenter=()=>{if(dialog.open)return;clearTimeout(floorPreviewTimer);floorPreviewTimer=setTimeout(show,120);};
+  target.onfocusin=show;target.onpointerdown=show;
+ });
+ const first=document.querySelector('[data-floor-preview-day]');
+ if(view==='day')showFloorPreview(date,floorScope,floorPreviewState?.day===date?floorPreviewState.highlightTable:'');
+ else if(floorPreviewState)refreshFloorPreview();
+ else if(first)showFloorPreview(first.dataset.floorPreviewDay,first.dataset.floorPreviewScope,first.dataset.floorPreviewTable);
+ else hideFloorPreview(true);
 }
-function floorEscape(ev){if(ev.key==='Escape')hideFloorPreview();}
 
 function bindDayGuestCounts(){
  if(view!=='day')return;
  bindGuestCounts($('#content'),{find:id=>rows.find(r=>r.id===id),save:p=>rpc('set_reservation_people',{p}),hidePreview:hideFloorPreview,saved:()=>{
   renderOverview();const t=totals(rows.filter(r=>r.date===date));
   document.querySelectorAll('#content > .stats .stat strong').forEach((el,i)=>{el.textContent=[t.abend,t.mittag,t.offen+t.rueckfrage,t.ungeklaert][i];if(i===0)el.parentElement.classList.toggle('warning',t.abend+t.ungeklaert>70);if(i===3)el.parentElement.classList.toggle('warning',!!t.ungeklaert);});
-  const daily=document.querySelector('.daily-floor .floor-plan');if(daily){daily.outerHTML=floorPlan(rows,date,floorScope);bindFloorPlans(document.querySelector('.daily-floor'),rows);}hideFloorPreview();
+  const daily=document.querySelector('.daily-floor .floor-plan');if(daily){daily.outerHTML=floorPlan(rows,date,floorScope);bindFloorPlans(document.querySelector('.daily-floor'),rows);}refreshFloorPreview();
  }});
 }
 function tableInlineField(r){
@@ -183,7 +208,7 @@ function bindTableInlineFields(){
     savedValue=result.table_no;input.value=savedValue;const tableRow=input.closest('[data-floor-preview-day]');if(tableRow){tableRow.dataset.floorPreviewTable=savedValue;tableRow.querySelectorAll('[data-open-floor]').forEach(b=>b.dataset.openFloorTable=savedValue);}input.removeAttribute('aria-invalid');feedback.textContent='Gespeichert';
     const print=input.parentElement.nextElementSibling;if(print)print.textContent=savedValue||'—';
     const daily=document.querySelector('.daily-floor .floor-plan');if(daily){daily.outerHTML=floorPlan(rows,date,floorScope);bindFloorPlans(document.querySelector('.daily-floor'),rows);}
-    hideFloorPreview();
+    if(floorPreviewState?.day===r.date)floorPreviewState.highlightTable=savedValue;refreshFloorPreview();
    }catch(err){feedback.textContent=err.message;input.setAttribute('aria-invalid','true');}
    finally{busy=false;input.readOnly=false;input.removeAttribute('aria-busy');}
   };

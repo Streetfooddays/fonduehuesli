@@ -14,7 +14,9 @@ test('docked plan persists during reservation editing and follows row selection 
  ctx.hideFloorPreview(true);assert.equal(pane.hidden,true);ctx.showFloorPreview('2099-01-01','all');assert.equal(pane.hidden,false);
  ctx.view='pending';ctx.inbox=[{id:'known',draft:{date:'2099-02-12'}},{id:'unclear',draft:{date:'2099-02-13'},issues:['Mehrere Angaben: Datum']}];
  ctx.selectRequestPlan('known');assert.equal(rendered.at(-1).day,'2099-02-12');assert.equal(pane.hidden,false);
- ctx.selectRequestPlan('unclear');assert.equal(pane.hidden,true);assert(!classes.has('floor-docked'));ctx.refreshFloorPreview();assert.equal(pane.hidden,true);
- ctx.selectRequestPlan('known');assert.equal(pane.hidden,false);assert.equal(rendered.at(-1).day,'2099-02-12');
+ ctx.selectRequestPlan('unclear');assert.equal(pane.hidden,true);assert(classes.has('floor-docked'));ctx.refreshFloorPreview();assert.equal(pane.hidden,true);assert(classes.has('floor-docked'));
+ // Deleting the selected request must not restore the former full-width view.
+ ctx.inbox=[];ctx.refreshFloorPreview();assert.equal(pane.hidden,true);assert(classes.has('floor-docked'));
+ ctx.inbox=[{id:'known',draft:{date:'2099-02-12'}}];ctx.selectRequestPlan('known');assert.equal(pane.hidden,false);assert.equal(rendered.at(-1).day,'2099-02-12');
  ctx.view='team';ctx.hideFloorPreview();assert.equal(pane.hidden,true);assert(!classes.has('floor-docked'));
 });

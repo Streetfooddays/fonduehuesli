@@ -37,3 +37,18 @@ test('hover blinks assigned tables exactly, supports multiple tables and clears 
  highlightFloorTables(root,'');assert(groups.every(g=>!g.classes.has('row-hover-highlight')));
  highlightFloorTables(root,null);assert(!classes.has('reservation-hover'));
 });
+
+test('arrival colors all assigned tables in every scope of its day and reverses when unchecked',()=>{
+ const arrived={...booking('arrived','1, G1','Bestätigt','12:00'),arrived:true};
+ const other=booking('later','1','Bestätigt','19:00');
+ for(const scope of ['all','mittag','abend']){
+  const m=floorOccupancy([arrived,other],day,scope);
+  assert.equal(m.occupancy['1'].state,'arrived');assert.equal(m.occupancy.G1.state,'arrived');
+  assert.match(floorPlan([arrived,other],day,scope),/floor-table arrived/);
+ }
+ assert.equal(floorOccupancy([arrived,other],'2026-11-21').occupancy['1'].state,'free');
+ assert.equal(floorOccupancy([{...arrived,arrived:false},other],day,'abend').occupancy['1'].state,'confirmed');
+ assert.equal(floorOccupancy([{...arrived,status:'Storniert'},other],day).occupancy.G1.state,'free');
+ assert.equal(floorOccupancy([{...arrived,table_no:'2'},other],day).occupancy['1'].state,'confirmed');
+ assert.match(floorPlan([arrived],day),/Grün · angekommen/);
+});

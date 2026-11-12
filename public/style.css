@@ -19,3 +19,6 @@
 
 .floor-table rect.floor-locator{fill:none;stroke:#244fff;stroke-width:8;pointer-events:none;animation:floor-locate .9s ease-in-out infinite}.floor-locator-note{color:#173a9e;background:#edf1ff;border-radius:6px;padding:.55rem .75rem;font-size:.85rem;font-weight:650;margin:.5rem 0}@keyframes floor-locate{0%,100%{opacity:1}50%{opacity:.12}}@media(prefers-reduced-motion:reduce){.floor-table rect.floor-locator{animation:none;opacity:1}}@media print{.floor-table rect.floor-locator{animation:none;opacity:1}}
 
+
+/* Arrival applies to every floor plan for the reservation day. */
+.floor-arrived:before{background:#238443;border:1px solid #14532d}.floor-table.arrived>rect:first-of-type{fill:#238443;stroke:#14532d}.floor-table.arrived text{fill:#fff}.floor-chip.arrived{background:#238443;color:#fff;border-color:#14532d}

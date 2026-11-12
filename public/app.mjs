@@ -253,7 +253,7 @@ function bindArrivalFields(){document.querySelectorAll('[data-arrival]').forEach
   try{
    const result=await rpc('set_reservation_arrival',{p:{id,revision:r.revision,arrived:value}});
    const current=rows.find(r=>r.id===id);if(current&&current.revision<=result.revision)Object.assign(current,result);
-   input.checked=result.arrived;row.classList.toggle('arrived-row',result.arrived);feedback.textContent='Gespeichert';input.removeAttribute('aria-invalid');
+   input.checked=result.arrived;row.classList.toggle('arrived-row',result.arrived);feedback.textContent='Gespeichert';input.removeAttribute('aria-invalid');refreshDaySummaries();
   }catch(err){input.checked=previous;feedback.textContent=err.message;input.setAttribute('aria-invalid','true');}
   finally{input.disabled=false;input.removeAttribute('aria-busy');}
  };

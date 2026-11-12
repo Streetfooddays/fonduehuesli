@@ -168,7 +168,8 @@ function bindFloorPreviews(){
  });
  document.querySelectorAll('[data-floor-preview-day]').forEach(target=>{
   const show=()=>showFloorPreview(target.dataset.floorPreviewDay,target.dataset.floorPreviewScope,target.dataset.floorPreviewTable);
-  target.onmouseenter=()=>{if(dialog.open)return;clearTimeout(floorPreviewTimer);floorPreviewTimer=setTimeout(show,120);};
+  // Only deliberate selection changes the pinned plan; mouse movement is passive.
+  target.onmouseenter=null;target.onmouseover=null;target.onmouseleave=null;
   target.onfocusin=show;target.onpointerdown=show;
  });
  const first=document.querySelector('[data-floor-preview-day]');

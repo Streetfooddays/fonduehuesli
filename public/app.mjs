@@ -1,3 +1,4 @@
+import {requestPlanContext,validReservationDay} from './request-plan.mjs';
 import {guestCountField,bindGuestCounts} from './guest-count.mjs';
 import {renderNewsletter} from './newsletter.mjs';
 import {fetchJSON} from './network.mjs';
@@ -136,10 +137,10 @@ function openFloorPlan(day,scope='all',highlightTable=''){if(!day){notice('Zuers
  bindTableDragging($('#movable-floor'),positions,async(number,position)=>{const message=$('#layout-message');message.textContent='Position wird gespeichert …';$('#move-tables').disabled=true;$('#close-floor').disabled=true;try{const previous=floorLayouts.find(l=>l.date===day);const saved=await rpc('save_floor_position',{p:{date:day,number,...position,revision:previous?.revision||0}});floorLayouts=floorLayouts.filter(l=>l.date!==day).concat(saved);setFloorLayouts(floorLayouts);if(dialog.open)draw();}catch(err){message.textContent=err.message;throw err;}finally{if($('#move-tables'))$('#move-tables').disabled=false;if($('#close-floor'))$('#close-floor').disabled=false;}});
  };draw();if(!dialog.open)dialog.showModal();}
 
-let floorPreviewTimer=null,floorPreviewState=null;
+let floorPreviewTimer=null,floorPreviewState=null,floorPreviewRequestId=null;
 const floorDockAvailable=()=>window.matchMedia('(min-width: 1100px)').matches;
 function syncFloorDock(){
- if(floorDockAvailable()&&!document.querySelector('#floor-hover')&&['day','all','pending'].includes(view)){const first=document.querySelector('[data-floor-preview-day]');if(view==='day')showFloorPreview(date,floorScope);else if(first)showFloorPreview(first.dataset.floorPreviewDay,first.dataset.floorPreviewScope,first.dataset.floorPreviewTable);return;}
+ if(floorDockAvailable()&&!document.querySelector('#floor-hover')&&['day','all','pending'].includes(view)){const first=document.querySelector('[data-floor-preview-day]');if(view==='pending'){bindFloorPreviews();return;}if(view==='day')showFloorPreview(date,floorScope);else if(first)showFloorPreview(first.dataset.floorPreviewDay,first.dataset.floorPreviewScope,first.dataset.floorPreviewTable);return;}
  const pane=document.querySelector('#floor-hover');
  document.body.classList.toggle('floor-docked',!!pane&&!pane.hidden&&floorDockAvailable()&&['day','all','pending'].includes(view));
 }
@@ -151,7 +152,7 @@ function hideFloorPreview(force=false){
  document.body.classList.remove('floor-docked');
 }
 function showFloorPreview(day,scope,highlightTable=''){
- if(!day||dialog.open||!floorDockAvailable())return;
+ if(!validReservationDay(day)||dialog.open||!floorDockAvailable())return;
  clearTimeout(floorPreviewTimer);floorPreviewState={day,scope,highlightTable};
  let pane=document.querySelector('#floor-hover');
  if(!pane){pane=document.createElement('aside');pane.id='floor-hover';pane.className='floor-hover';pane.setAttribute('aria-label','Fester Tischplan zur Reservation');document.body.append(pane);}
@@ -160,9 +161,15 @@ function showFloorPreview(day,scope,highlightTable=''){
  pane.querySelector('#dock-enlarge').onclick=()=>openFloorPlan(day,scope,highlightTable);
  pane.querySelector('#dock-scope').onchange=ev=>{if(view==='day'&&day===date)floorScope=ev.target.value;showFloorPreview(day,ev.target.value,highlightTable);};
 }
-function refreshFloorPreview(){if(floorPreviewState)showFloorPreview(floorPreviewState.day,floorPreviewState.scope,floorPreviewState.highlightTable);}
+function selectRequestPlan(id){
+ const m=inbox.find(m=>m.id===id);floorPreviewRequestId=id;const context=requestPlanContext(m,rows);
+ if(!context){floorPreviewState=null;hideFloorPreview(true);return;}
+ showFloorPreview(context.day,context.scope,context.highlightTable);
+}
+function refreshFloorPreview(){if(view==='pending'&&floorPreviewRequestId){selectRequestPlan(floorPreviewRequestId);return;}if(floorPreviewState)showFloorPreview(floorPreviewState.day,floorPreviewState.scope,floorPreviewState.highlightTable);}
 function bindFloorPreviews(){
  document.querySelectorAll('[data-open-floor]').forEach(b=>b.onclick=()=>{
+  const card=b.closest('[data-request-id]');if(view==='pending'&&card){const context=requestPlanContext(inbox.find(m=>m.id===card.dataset.requestId),rows);if(!context||floorDockAvailable())selectRequestPlan(card.dataset.requestId);else openFloorPlan(context.day,'all',context.highlightTable);return;}
   if(floorDockAvailable())showFloorPreview(b.dataset.openFloor,b.dataset.openFloorScope,b.dataset.openFloorTable);
   else openFloorPlan(b.dataset.openFloor,b.dataset.openFloorScope,b.dataset.openFloorTable);
  });
@@ -170,9 +177,17 @@ function bindFloorPreviews(){
   // The Tischplan button is the only row control that selects a plan.
   target.onmouseenter=null;target.onmouseover=null;target.onmouseleave=null;
   target.onfocusin=null;target.onpointerdown=null;
+  if(view==='pending'){const select=()=>{if(target.dataset.requestId){selectRequestPlan(target.dataset.requestId);return;}const booking=rows.find(r=>r.id===target.dataset.reservationId),mail=inbox.find(m=>m.reservation_id===booking?.id);if(mail)selectRequestPlan(mail.id);else if(booking&&validReservationDay(booking.date)){floorPreviewRequestId=null;showFloorPreview(booking.date,'all',booking.table_no||'');}else{floorPreviewState=null;hideFloorPreview(true);}};target.onpointerdown=select;target.onfocusin=select;}
  });
  const first=document.querySelector('[data-floor-preview-day]');
- if(view==='day')showFloorPreview(date,floorScope,floorPreviewState?.day===date?floorPreviewState.highlightTable:'');
+ if(view==='pending'){
+  const card=document.querySelector('[data-request-id]');
+  if(floorPreviewRequestId&&inbox.some(m=>m.id===floorPreviewRequestId&&mailNeedsAction(m)))selectRequestPlan(floorPreviewRequestId);
+  else if(card)selectRequestPlan(card.dataset.requestId);
+  else if(first&&validReservationDay(first.dataset.floorPreviewDay))showFloorPreview(first.dataset.floorPreviewDay,'all',first.dataset.floorPreviewTable);
+  else{floorPreviewState=null;hideFloorPreview(true);}
+ }
+ else if(view==='day')showFloorPreview(date,floorScope,floorPreviewState?.day===date?floorPreviewState.highlightTable:'');
  else if(floorPreviewState)refreshFloorPreview();
  else if(first)showFloorPreview(first.dataset.floorPreviewDay,first.dataset.floorPreviewScope,first.dataset.floorPreviewTable);
  else hideFloorPreview(true);

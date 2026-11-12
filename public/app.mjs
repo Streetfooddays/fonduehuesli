@@ -5,7 +5,7 @@ import {renderNewsletter} from './newsletter.mjs';
 import {fetchJSON} from './network.mjs';
 import {bindTablePicker,bindTableDragging} from './floor-interactions.mjs';
 import {duplicateCandidates} from './duplicates.mjs';
-import {floorPlan,bindFloorPlans,TABLE_NUMBERS,tableAssignments,setFloorLayouts} from './floor-plan.mjs';
+import {floorPlan,bindFloorPlans,highlightFloorTables,TABLE_NUMBERS,tableAssignments,setFloorLayouts} from './floor-plan.mjs';
 import {DEFAULT_BODY,DEFAULT_SIGNATURE,confirmationMessage,suggestSalutation} from './confirmation-core.mjs';
 import {guest,totals,bookingSummary,dayOccupancy,csv,canConfirm,period,escapeHTML as e} from './core.mjs';
 const BASE='https://lfngszulhqncyqkxlcbs.supabase.co';
@@ -178,6 +178,7 @@ function bindFloorPreviews(){
   // The Tischplan button is the only row control that selects a plan.
   target.onmouseenter=null;target.onmouseover=null;target.onmouseleave=null;
   target.onfocusin=null;target.onpointerdown=null;
+  if(view==='day'){const highlight=()=>{const pane=document.querySelector('#floor-hover');if(dialog.open||!pane||pane.hidden||target.dataset.floorPreviewDay!==date)return;highlightFloorTables(pane,target.dataset.floorPreviewTable||'');};const clear=()=>highlightFloorTables(document.querySelector('#floor-hover'),null);target.onmouseenter=highlight;target.onmouseleave=clear;target.onfocusin=highlight;target.onfocusout=clear;}
   if(view==='pending'){const select=()=>{if(target.dataset.requestId){selectRequestPlan(target.dataset.requestId);return;}const booking=rows.find(r=>r.id===target.dataset.reservationId),mail=inbox.find(m=>m.reservation_id===booking?.id);if(mail)selectRequestPlan(mail.id);else if(booking&&validReservationDay(booking.date)){floorPreviewRequestId=null;showFloorPreview(booking.date,'all',booking.table_no||'');}else{floorPreviewState=null;hideFloorPreview(true);}};target.onpointerdown=select;target.onfocusin=select;}
  });
  const first=document.querySelector('[data-floor-preview-day]');

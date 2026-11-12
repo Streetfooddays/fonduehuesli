@@ -7,6 +7,13 @@ export function setFloorLayouts(value){layouts=Array.isArray(value)?value:[];}
 export function floorTables(day){const saved=layouts.find(l=>l.date===day)?.positions||{};return TABLES.map(t=>{const p=saved[t.number];return p&&Number.isFinite(p.x)&&Number.isFinite(p.y)?{...t,x:p.x,y:p.y}:t;});}
 
 export const DUPLICATE_NUMBERS=TABLE_NUMBERS.filter(n=>TABLES.filter(t=>t.number===n).length>1);
+// Highlight existing SVG groups without redrawing, moving or switching the plan.
+export function highlightFloorTables(root,value=null){
+ if(!root)return;
+ const active=value!==null,selected=new Set(tableAssignments(value||'').tables);
+ root.classList.toggle('reservation-hover',active);
+ root.querySelectorAll('.floor-table[data-floor-table]').forEach(group=>group.classList.toggle('row-hover-highlight',active&&selected.has(group.dataset.floorTable)));
+}
 export function tableAssignments(value=''){
  const raw=String(value).trim().toUpperCase();if(!raw)return {tables:[],unclear:false,unknown:[]};
  let text=raw.replace(/\bTISCHE?\b|\bTISCHNR\.?\b/g,'').trim();

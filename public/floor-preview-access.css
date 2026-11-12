@@ -1,5 +1,10 @@
 /* Reserve a separate column: the plan must never cover reservation controls. */
 :root{--floor-dock-width:clamp(340px,32vw,560px)}
+.reservation-hover .floor-locator{display:none}
+.reservation-hover .floor-locator-note{visibility:hidden}
+.reservation-hover .floor-table.row-hover-highlight>rect:first-of-type{stroke:#244fff;stroke-width:10;animation:reservation-table-blink .9s ease-in-out infinite}
+@keyframes reservation-table-blink{0%,100%{stroke-opacity:1}50%{stroke-opacity:.12}}
+@media(prefers-reduced-motion:reduce){.reservation-hover .floor-table.row-hover-highlight>rect:first-of-type{animation:none}}
 .floor-hover{display:none}
 @media screen and (min-width:1100px){
  body.floor-docked>.floor-hover:not([hidden]){display:block;position:fixed;right:12px;top:12px;bottom:12px;width:var(--floor-dock-width);height:calc(100dvh - 24px);max-height:none;box-sizing:border-box;overflow:auto;padding:12px;z-index:90;box-shadow:0 3px 16px #20180e22}

@@ -27,3 +27,13 @@ test('three gondolas stand to the right of T1, T2, T3 and have independent occup
  assert.deepEqual(tableAssignments('G1, G2, G3').tables,['G1','G2','G3']);assert.deepEqual(tableAssignments('G 1, T2, 1').tables,['G1','T2','1']);
  const rows=[booking('g','G1')];const plan=floorOccupancy(rows,day);assert.equal(plan.occupancy.G1.state,'confirmed');assert.equal(plan.occupancy.G2.state,'free');assert.equal(plan.occupancy['1'].state,'free');assert(floorPlan(rows,day).includes('Gondel G1'));assert(floorPlan(rows,day).includes('maximal 4 Personen'));
 });
+
+// Hover highlighting changes only classes on existing table groups.
+test('hover blinks assigned tables exactly, supports multiple tables and clears without rebuilding SVG',async()=>{
+ const {highlightFloorTables}=await import('./public/floor-plan.mjs');
+ const groups=['1','2','G1'].map(number=>({dataset:{floorTable:number},classes:new Set(),get classList(){return {toggle:(c,on)=>on?this.classes.add(c):this.classes.delete(c)};}}));
+ const classes=new Set(),root={classList:{toggle:(c,on)=>on?classes.add(c):classes.delete(c)},querySelectorAll:()=>groups};
+ highlightFloorTables(root,'1, G1');assert(classes.has('reservation-hover'));assert(groups[0].classes.has('row-hover-highlight'));assert(!groups[1].classes.has('row-hover-highlight'));assert(groups[2].classes.has('row-hover-highlight'));
+ highlightFloorTables(root,'');assert(groups.every(g=>!g.classes.has('row-hover-highlight')));
+ highlightFloorTables(root,null);assert(!classes.has('reservation-hover'));
+});

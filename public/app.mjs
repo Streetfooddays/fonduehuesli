@@ -146,7 +146,7 @@ function syncFloorDock(){
 window.addEventListener('resize',syncFloorDock);
 function hideFloorPreview(force=false){
  clearTimeout(floorPreviewTimer);
- if(!force&&['day','all','pending'].includes(view))return;
+ if(force!==true&&['day','all','pending'].includes(view))return;
  const pane=document.querySelector('#floor-hover');if(pane)pane.hidden=true;
  document.body.classList.remove('floor-docked');
 }
@@ -167,10 +167,9 @@ function bindFloorPreviews(){
   else openFloorPlan(b.dataset.openFloor,b.dataset.openFloorScope,b.dataset.openFloorTable);
  });
  document.querySelectorAll('[data-floor-preview-day]').forEach(target=>{
-  const show=()=>showFloorPreview(target.dataset.floorPreviewDay,target.dataset.floorPreviewScope,target.dataset.floorPreviewTable);
-  // Only deliberate selection changes the pinned plan; mouse movement is passive.
+  // The Tischplan button is the only row control that selects a plan.
   target.onmouseenter=null;target.onmouseover=null;target.onmouseleave=null;
-  target.onfocusin=show;target.onpointerdown=show;
+  target.onfocusin=null;target.onpointerdown=null;
  });
  const first=document.querySelector('[data-floor-preview-day]');
  if(view==='day')showFloorPreview(date,floorScope,floorPreviewState?.day===date?floorPreviewState.highlightTable:'');

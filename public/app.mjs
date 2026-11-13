@@ -200,13 +200,18 @@ function bindFloorPreviews(){
 }
 
 function bindDayReservationDeletes(){
- document.querySelectorAll('[data-delete-day]').forEach(button=>button.onclick=async()=>{
+ document.querySelectorAll('[data-delete-day]').forEach(button=>button.onclick=()=>{
   const r=rows.find(r=>r.id===button.dataset.deleteDay);if(!r)return;
   const d=guest(r),name=[d.last,d.first].filter(Boolean).join(' ')||'Ohne Namen';
-  if(!window.confirm(`Reservation von ${name} am ${fmt(r.date)} um ${r.time||'Zeit offen'} (${r.people} Personen) löschen? Die Reservation wird aus den Übersichten entfernt. Es wird keine E-Mail versendet.`))return;
-  button.disabled=true;
-  try{await rpc('delete_day_reservation',{p:{id:r.id,date:r.date,revision:r.revision}});rows=rows.filter(x=>x.id!==r.id);inbox=inbox.map(m=>m.reservation_id===r.id?{...m,state:'ignored'}:m);render();notice('Reservation gelöscht.');}
-  catch(err){notice(err.message);button.disabled=false;}
+  dialog.onclose=null;dialog.classList.remove('floor-dialog');dialog.close();
+  dialog.innerHTML=`<div class="dialog-head"><h2>Reservation löschen?</h2><button type="button" class="quiet" id="close-day-delete" aria-label="Schliessen">✕</button></div><p><strong>${e(name)}</strong><br>${e(fmt(r.date))} · ${e(r.time||'Zeit offen')} · ${r.people} Personen · Tisch ${e(r.table_no||'offen')}</p><p>Die Reservation wird aus den Übersichten und der Gästezählung entfernt. Es wird keine E-Mail versendet.</p><p id="day-delete-error" class="error-text" role="alert"></p><div class="actions"><button type="button" class="secondary" id="cancel-day-delete">Abbrechen</button><button type="button" class="danger" id="confirm-day-delete">Reservation löschen</button></div>`;
+  $('#close-day-delete').onclick=$('#cancel-day-delete').onclick=()=>dialog.close();
+  $('#confirm-day-delete').onclick=async()=>{
+   const confirm=$('#confirm-day-delete');if(confirm.disabled)return;confirm.disabled=true;confirm.textContent='Wird gelöscht …';$('#day-delete-error').textContent='';
+   try{await rpc('delete_day_reservation',{p:{id:r.id,date:r.date,revision:r.revision}});rows=rows.filter(x=>x.id!==r.id);inbox=inbox.map(m=>m.reservation_id===r.id?{...m,state:'ignored'}:m);dialog.close();render();notice('Reservation gelöscht.');}
+   catch(err){$('#day-delete-error').textContent=err.message;confirm.disabled=false;confirm.textContent='Reservation löschen';}
+  };
+  dialog.showModal();
  });
 }
 

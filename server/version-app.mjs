@@ -1,0 +1,10 @@
+import {readFileSync,writeFileSync} from 'node:fs';
+import {createHash} from 'node:crypto';
+const app=readFileSync('public/app.mjs','utf8');
+const name='app-'+createHash('sha256').update(app).digest('hex').slice(0,16)+'.mjs';
+const index=readFileSync('public/index.html','utf8');
+const versioned=index.replace(/src="\/app(?:-[a-f0-9]+)?\.mjs(?:\?[^"\s]*)?"/,`src="/${name}"`);
+if(versioned===index&&!index.includes(`src="/${name}"`))throw Error('Application entry script not found.');
+writeFileSync('public/'+name,app);
+writeFileSync('public/index.html',versioned);
+console.log('Versioned application entry:',name);

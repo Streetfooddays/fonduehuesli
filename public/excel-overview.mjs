@@ -1,3 +1,4 @@
+import {cancellationsLast} from './reservation-order.mjs';
 import {guest,escapeHTML as e} from './core.mjs';
 import {tableAssignments} from './floor-plan.mjs';
 export function weekDays(value){
@@ -24,12 +25,21 @@ export function renderExcelOverview(root,{rows,outbox=[],date,save,onSaved,onDat
  const draw=()=>{
   const days=weekDays(selected);
   root.classList.remove('day-compact');
-  root.innerHTML=`<section class="excel-overview"><div class="toolbar filters"><button type="button" class="secondary" data-sheet-week="-7" aria-label="Vorherige Woche">← Woche</button><label>Woche auswählen<input type="date" id="sheet-date" value="${e(selected)}" required></label><button type="button" class="secondary" data-sheet-week="7">Woche →</button><button type="button" class="secondary" id="sheet-print">Drucken</button></div><h2>Excel-Übersicht</h2><p class="muted">${dayLabel(days[0])} – ${dayLabel(days[6])}</p><p>Wie in eurer Excel-Liste: direkt in die Zeile schreiben und «Speichern» oder «Eintragen» wählen. Jeder Tag hat eine leere Zeile für neue Reservationen. Die Daten gehören zum gemeinsamen Reservationsbuch.</p><div class="sheet-days">${days.map(day=>`<section class="sheet-day" data-sheet-section="${e(day)}"><div class="sheet-day-heading"><h3>${e(dayLabel(day))}</h3><strong data-sheet-total="${day}"></strong></div><div class="table-scroll"><table class="excel-table"><thead><tr>${cols.map(([,label])=>`<th>${label}</th>`).join('')}<th>Status</th><th>Speichern</th></tr></thead><tbody>${rows.filter(r=>r.date===day).sort((a,b)=>(a.time||'99').localeCompare(b.time||'99')||String(guest(a).last||'').localeCompare(String(guest(b).last||''),'de')).map(r=>rowHTML(r,day,outbox.some(o=>o.reservation_id===r.id&&o.state!=='sent'))).join('')}${rowHTML(null,day)}</tbody></table></div></section>`).join('')}</div></section>`;
+  root.innerHTML=`<section class="excel-overview"><div class="toolbar filters"><button type="button" class="secondary" data-sheet-week="-7" aria-label="Vorherige Woche">← Woche</button><label>Woche auswählen<input type="date" id="sheet-date" value="${e(selected)}" required></label><button type="button" class="secondary" data-sheet-week="7">Woche →</button><button type="button" class="secondary" id="sheet-print">Drucken</button></div><h2>Excel-Übersicht</h2><p class="muted">${dayLabel(days[0])} – ${dayLabel(days[6])}</p><p>Wie in eurer Excel-Liste: direkt in die Zeile schreiben und «Speichern» oder «Eintragen» wählen. Jeder Tag hat eine leere Zeile für neue Reservationen. Die Daten gehören zum gemeinsamen Reservationsbuch.</p><div class="sheet-days">${days.map(day=>`<section class="sheet-day" data-sheet-section="${e(day)}"><div class="sheet-day-heading"><h3>${e(dayLabel(day))}</h3><strong data-sheet-total="${day}"></strong></div><div class="table-scroll"><table class="excel-table"><thead><tr>${cols.map(([,label])=>`<th>${label}</th>`).join('')}<th>Status</th><th>Speichern</th></tr></thead><tbody>${dayRowsHTML(day)}</tbody></table></div></section>`).join('')}</div></section>`;
   updateTotals();bindRows();
   root.querySelectorAll('[data-sheet-week]').forEach(b=>b.onclick=()=>{if(dirty()&&!window.confirm('Ungespeicherte Änderungen verwerfen und die Woche wechseln?'))return;const d=new Date(selected+'T12:00:00Z');d.setUTCDate(d.getUTCDate()+Number(b.dataset.sheetWeek));selected=d.toISOString().slice(0,10);onDate(selected);draw();});
   root.querySelector('#sheet-date').onchange=ev=>{if(!ev.target.value)return;if(dirty()&&!window.confirm('Ungespeicherte Änderungen verwerfen und die Woche wechseln?')){ev.target.value=selected;return;}selected=ev.target.value;onDate(selected);draw();};
   root.querySelector('#sheet-print').onclick=()=>window.print();
  };
+ function dayRowsHTML(day){
+  const list=rows.filter(r=>r.date===day).sort((a,b)=>cancellationsLast(a,b)||(a.time||'99').localeCompare(b.time||'99')||String(guest(a).last||'').localeCompare(String(guest(b).last||''),'de'));
+  const html=r=>rowHTML(r,day,outbox.some(o=>o.reservation_id===r.id&&o.state!=='sent'));
+  return list.filter(r=>r.status!=='Storniert').map(html).join('')+rowHTML(null,day)+list.filter(r=>r.status==='Storniert').map(html).join('');
+ }
+ function placeCancelledLast(body){
+  const rank=tr=>tr.dataset.sheetNew==='true'?1:rows.find(r=>r.id===tr.dataset.sheetId)?.status==='Storniert'?2:0;
+  [...body.children].sort((a,b)=>rank(a)-rank(b)).forEach(tr=>body.append(tr));
+ }
  function updateTotals(){root.querySelectorAll('[data-sheet-total]').forEach(el=>{const t=sheetTotals(rows,el.dataset.sheetTotal);el.textContent=`${t.reservations} Reservationen · ${t.people} Personen`;});}
  function bindRows(){root.querySelectorAll('tr[data-sheet-id]').forEach(tr=>{
   tr.oninput=()=>{tr.dataset.dirty='true';tr.querySelector('.sheet-feedback').textContent='Noch nicht gespeichert';};
@@ -47,7 +57,7 @@ export function renderExcelOverview(root,{rows,outbox=[],date,save,onSaved,onDat
     const rowIndex=rows.findIndex(x=>x.id===saved.id);if(rowIndex>=0)rows[rowIndex]=saved;else rows.push(saved);
     const holder=document.createElement('tbody');holder.innerHTML=rowHTML(saved,values.date);const replacement=holder.firstElementChild;tr.replaceWith(replacement);
     if(!r){const body=replacement.parentElement;body.insertAdjacentHTML('beforeend',rowHTML(null,values.date));}
-    updateTotals();bindRows();replacement.querySelector('.sheet-feedback').textContent='Gespeichert';notice('Reservation gespeichert.');
+    placeCancelledLast(replacement.parentElement);updateTotals();bindRows();replacement.querySelector('.sheet-feedback').textContent='Gespeichert';notice('Reservation gespeichert.');
    }catch(err){feedback.textContent=err.message;feedback.setAttribute('role','alert');tr.querySelector('.sheet-override').hidden=false;}
    finally{button.disabled=false;tr.querySelectorAll('input,textarea,select').forEach(c=>c.disabled=false);}
   };

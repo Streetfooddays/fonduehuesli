@@ -13,6 +13,14 @@ async function api(key:string,path:string,method='GET',body?:unknown,id?:string)
  const r=await fetch('https://api.resend.com'+path,{method,headers:{Authorization:'Bearer '+key,'Content-Type':'application/json',...(id?{'Idempotency-Key':'reservation-confirmation/'+id}:{})},body:body===undefined?undefined:JSON.stringify(body),signal:AbortSignal.timeout(15000)});
  if(!r.ok)throw Error(r.status===401||r.status===403?'Resend-Schlüssel oder Berechtigungen prüfen.':'Resend ist momentan nicht erreichbar. Bitte erneut versuchen.');return r.json();
 }
+let firstNameCache:string[]=[];let firstNameCacheAt=0;
+async function knownFirstNames(){
+ if(Date.now()-firstNameCacheAt<300000)return firstNameCache;
+ try{const {data,error}=await admin.from('reservations').select('data').limit(5000);if(error)throw error;
+  firstNameCache=[...new Set((data||[]).map((r:any)=>{try{return String(JSON.parse(r.data||'{}').first||'').trim();}catch{return '';}}).filter(Boolean))] as string[];firstNameCacheAt=Date.now();
+ }catch{firstNameCacheAt=Date.now();}
+ return firstNameCache;
+}
 Deno.serve(async(req:Request)=>{
  if(req.method==='OPTIONS')return new Response(null,{headers:cors});if(req.method!=='POST')return answer({error:'Methode nicht erlaubt.'},405);
  const isWebhook=!!req.headers.get('svix-id');
@@ -26,7 +34,7 @@ Deno.serve(async(req:Request)=>{
    const mail=await api(c.api_key,'/emails/receiving/'+id+'?html_format=cid');
    const recipients=[...(mail.to||[]),...(mail.received_for||[])].map((x:string)=>x.toLowerCase());
    if(!recipients.some((s:string)=>s===RECIPIENT||s.includes('<'+RECIPIENT+'>')))return answer({ok:true,ignored:true});
-   const fullText=String(mail.text||htmlText(mail.html||''));const text=fullText.slice(0,60000);const parsed=parseMail(text);
+   const fullText=String(mail.text||htmlText(mail.html||''));const text=fullText.slice(0,60000);const parsed=parseMail(text,{receivedAt:mail.created_at||mail.received_at||new Date(),knownFirstNames:await knownFirstNames()});
    if(fullText.length>60000){parsed.issues.push('Mailtext gekürzt: Originalmail im Postfach prüfen.');parsed.complete=false;}
    if((mail.attachments||[]).some((a:any)=>a.content_disposition!=='inline')){parsed.issues.push('Anhänge im Originalpostfach prüfen.');parsed.complete=false;}
    if(/\b(storn|absage|änderung|aenderung|verschieb|annull)/i.test(mail.subject||'')){parsed.issues.push('Betreff weist auf eine Änderung oder Stornierung hin.');parsed.complete=false;}

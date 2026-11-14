@@ -1,19 +1,29 @@
-const names={date:['datum','reservationsdatum','reservationswunsch','wunschdatum'],time:['zeit','uhrzeit','ankunftszeit'],people:['personen','anzahl personen','personenzahl','anzahl gäste','anzahl gaeste','anzahl pers.','anzahl pers','anzahl personen.'],last:['nachname','name','name/vorname','name / vorname','vorname/nachname','vorname / nachname'],first:['vorname'],email:['e-mail','email','e-mail-adresse','mailadresse'],phone:['telefon','telefonnummer','mobile'],street:['strasse','straße','strasse/nr','strasse/nr.','strasse / nr','straße/nr'],zip:['plz','postleitzahl'],city:['ort','wohnort'],company:['firma','unternehmen'],comment:['kommentar','bemerkungen','nachricht','mitteilung','wünsche','wuensche'],gondola:['fonduegondel','gondel']};
+import {parseReservationDate,splitReservationName} from './reservation-fields.mjs';
+const names={date:['datum','reservationsdatum','reservationswunsch','wunschdatum','reservierungsdatum','gewünschtes datum','gewuenschtes datum','reservation am','reservierung am','reservation für','reservierung für'],time:['zeit','uhrzeit','ankunftszeit'],people:['personen','anzahl personen','personenzahl','anzahl gäste','anzahl gaeste','anzahl pers.','anzahl pers','anzahl personen.'],last:['nachname','name','name/vorname','name / vorname','vorname/nachname','vorname / nachname','nachname/vorname','nachname / vorname','vorname und nachname','name und vorname','vollständiger name','vollstaendiger name','familienname','nachname, vorname','name, vorname','voller name'],first:['vorname','vorname(n)','first name'],email:['e-mail','email','e-mail-adresse','mailadresse'],phone:['telefon','telefonnummer','mobile'],street:['strasse','straße','strasse/nr','strasse/nr.','strasse / nr','straße/nr'],zip:['plz','postleitzahl'],city:['ort','wohnort'],company:['firma','unternehmen'],comment:['kommentar','bemerkungen','nachricht','mitteilung','wünsche','wuensche'],gondola:['fonduegondel','gondel']};
 export function htmlText(html=''){
  if(html.startsWith('data:text/html;base64,'))try{html=new TextDecoder().decode(Uint8Array.from(atob(html.slice(22)),c=>c.charCodeAt(0)));}catch{return '';}
  return html.replace(/<(script|style)\b[^>]*>[\s\S]*?<\/\1>/gi,'').replace(/<\/(?:td|th)>\s*<(?:td|th)\b[^>]*>/gi,': ').replace(/<(?:br|\/p|\/div|\/tr|\/li)\b[^>]*>/gi,'\n').replace(/<[^>]*>/g,'').replace(/&#(x[0-9a-f]+|\d+);/gi,(_,n)=>{const code=n[0].toLowerCase()==='x'?parseInt(n.slice(1),16):Number(n);return code>0&&code<=0x10ffff?String.fromCodePoint(code):'';}).replace(/&(amp|lt|gt|quot|apos|nbsp);/g,(_,k)=>({amp:'&',lt:'<',gt:'>',quot:'"',apos:"'",nbsp:' '}[k]));
 }
-export function parseMail(text){
- const found={},issues=[];const lines=String(text||'').replace(/\r/g,'').split('\n').map(s=>s.replace(/^\s*>\s?/,'').trim()).filter(Boolean);
+export function parseMail(text,options={}){
+ const found={},issues=[],dateValues=[],combinedNames=[];const lines=String(text||'').replace(/\r/g,'').split('\n').map(s=>s.replace(/^\s*>\s?/,'').trim()).filter(Boolean);
  for(let i=0;i<lines.length;i++){
   const line=lines[i],match=line.match(/^([^:]{2,40}):\s*(.*)$/);let label=match?match[1].trim().toLowerCase():line.toLowerCase(),value=match?match[2].trim():'';
+  label=label.replace(/\s*\*+$/,'').replace(/\s+/g,' ').trim();
   const key=Object.keys(names).find(k=>names[k].includes(label));if(!key)continue;
-  if(!value&&lines[i+1]){const nextLabel=lines[i+1].replace(/:$/,'').trim().toLowerCase();if(!Object.values(names).some(list=>list.includes(nextLabel)))value=lines[++i];}
-  if(!value)continue;if(found[key]&&found[key]!==value)issues.push('Mehrere Angaben: '+label);else found[key]=value.slice(0,4000);
+  if(!value&&lines[i+1]){const nextLabel=lines[i+1].replace(/:$/,'').trim().toLowerCase().replace(/\s*\*+$/,'').replace(/\s+/g,' ').trim();if(!Object.values(names).some(list=>list.includes(nextLabel)))value=lines[++i];}
+  if(!value)continue;value=value.slice(0,4000);if(key==='date'){dateValues.push(value);continue;}if(key==='last'&&!['nachname','familienname'].includes(label)){combinedNames.push({value,label});continue;}if(found[key]&&found[key]!==value)issues.push('Mehrere Angaben: '+label);else found[key]=value;
  }
  let date='',time='',people=null;
- const m=(found.date||'').match(/^(?:(\d{4})-(\d{2})-(\d{2})|(\d{1,2})\.(\d{1,2})\.(\d{4}))$/);
- if(m){date=m[1]?`${m[1]}-${m[2]}-${m[3]}`:`${m[6]}-${m[5].padStart(2,'0')}-${m[4].padStart(2,'0')}`;const dt=new Date(date+'T12:00:00Z');if(!Number.isFinite(dt.getTime())||dt.toISOString().slice(0,10)!==date)date='';}
+ const inputs=dateValues.length?dateValues:lines.filter(line=>/reservier|reservati/i.test(line)&&! /^(?:von|gesendet|sent|from):/i.test(line));
+ const parsedDates=inputs.map(value=>parseReservationDate(value,options));
+ const uniqueDates=[...new Set(parsedDates.map(p=>p.date).filter(Boolean))];
+ issues.push(...new Set(parsedDates.flatMap(p=>p.issues)));
+ if(uniqueDates.length===1&&!parsedDates.some(p=>p.issues.some(i=>/Mehrere Datumsangaben|Ungültige Datumsangabe/.test(i))))date=uniqueDates[0];
+ else if(uniqueDates.length>1)issues.push('Mehrere Angaben: unterschiedliche Reservationsdaten.');
+ const combined=combinedNames[0]||{value:'',label:''};
+ if(new Set(combinedNames.map(n=>n.value.toLowerCase())).size>1)issues.push('Mehrere Angaben: unterschiedliche Namen.');
+ const parsedName=splitReservationName({last:found.last||'',first:found.first||'',combined:combined.value,label:combined.label,knownFirstNames:options.knownFirstNames||[]});
+ found.last=parsedName.last;found.first=parsedName.first;issues.push(...parsedName.issues);
  const clock=(found.time||'').replace(/^(\d{1,2})(\d{2})$/,'$1:$2');
  const t=clock.match(/^([01]?\d|2[0-3])[:.]([0-5]\d)(?:\s*Uhr)?$/i);if(t)time=t[1].padStart(2,'0')+':'+t[2];
  const n=(found.people||'').match(/^(\d{1,4})(?:\s*(?:Personen|Person|Gäste|Gaeste))?$/i);if(n&&Number(n[1])>=1&&Number(n[1])<=1000)people=Number(n[1]);

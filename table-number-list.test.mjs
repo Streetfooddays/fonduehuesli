@@ -8,10 +8,10 @@ test('sums all reservations for the chosen day and omits cancellations and delet
  const m=tableNumberSummary([row('a','4',2),{...row('b','4',3),time:'19:00'},{...row('c','4',10),status:'Storniert'},{...row('d','4',20),deleted_at:'now'},{...row('e','4',30),date:'2099-01-02'}],day);
  assert.equal(m.tables[0].people,5);assert.equal(m.people,5);assert.equal(m.tables[0].bookings,2);assert.equal(m.tables[0].times.size,2);
 });
-test('multiple-table groups are labelled together without inventing a per-table distribution or double counting',()=>{
- const m=tableNumberSummary([row('a','4, 5',8),row('b','4',2),row('c','',3)],day);
- assert.equal(m.people,13);assert.equal(m.tables[0].people,2);assert.equal(m.tables[1].people,0);assert.equal(m.tables[0].shared[0].people,8);assert.equal(m.unassigned.length,1);
- const html=tableNumberList([row('a','4, 5',8)],day);assert.match(html,/Gemeinsam 8 Personen: 4, 5/);assert.match(html,/Total: 8 Personen/);
+test('multiple-table groups appear once under the smallest number with their full guest count',()=>{
+ const m=tableNumberSummary([row('a','4, 5',8),row('b','4',2),row('c','',3),row('d','777, 7, 77',5)],day);
+ assert.equal(m.people,18);assert.deepEqual(m.tables.map(t=>t.number),['4','7']);assert.equal(m.tables[0].people,10);assert.equal(m.tables[1].people,5);assert.equal(m.unassigned.length,1);
+ const html=tableNumberList([row('a','7, 77, 777',5)],day);assert.match(html,/<strong>7<\/strong>/);assert.match(html,/<strong>5<\/strong>/);assert(!html.includes('<strong>77</strong>'));assert(!html.includes('<strong>777</strong>'));
 });
 test('an explicit table outside the plan is retained and empty days have an empty state',()=>{
  assert.equal(tableNumberSummary([row('x','99',3)],day).tables[0].people,3);assert.match(tableNumberList([],day),/Noch keine Tische zugeordnet/);

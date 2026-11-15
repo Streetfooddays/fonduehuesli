@@ -31,3 +31,5 @@ test('current request highlight moves between rows and clears without creating o
  markCurrentRequest(root,'b');assert(!rows[0].classes.has('sheet-current-request'));assert(rows[1].classes.has('sheet-current-request'));
  markCurrentRequest(root,null);assert(rows.every(r=>r.classes.size===0&&!r.attrs['aria-current']));assert.equal(rows.length,2);
 });
+
+test('assigning a regular table clears a previous gondola flag; an unnumbered gondola remains reserved',()=>{const r={id:'g',revision:2,gondola:1,status:'Bestätigt',data:'{"last":"Muster","first":"Anna","gondola":"Ja"}'};assert.equal(sheetPayload(r,{...values,tableNo:'1'},'unused').gondola,false);assert.equal(sheetPayload(r,{...values,tableNo:''},'unused').gondola,true);});

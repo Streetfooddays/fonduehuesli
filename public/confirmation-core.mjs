@@ -4,13 +4,13 @@ export const FROM='Fonduehüsli Bülach <reservation@fonduehuesli.ch>';
 export const BANNER='https://fonduehuesli-reservationen.onrender.com/mail-banner.png';
 const female=new Set('sybille sibylle sabrina sandra susanne susanna nicole monika monique claudia karin corinne corina brigitte barbara andrea anna anne maria marie ursula ruth elisabeth christine christina stephanie stefanie daniela manuela petra renate sonja tanja katrin beatrice regina verena heidi irene silvia sylvia carmen simone eveline evelyn sarah sara laura lisa lea leonie julia sophia sofia emma nina nora lena mia eva ines nadine melanie jessica michelle francesca giulia valentina'.split(' '));
 const male=new Set('oliver hans peter thomas daniel markus marcus marco marc michael stefan stephan andreas martin patrick pascal christian christoph urs reto beat roger roland bruno walter werner kurt paul robert philipp lukas lucas luca jan jonas noah leon david simon samuel fabian florian benjamin dominik matthias mathias alexander sebastian raphael rafael manuel marcel josef johann heinz erich alfred adrian'.split(' '));
-export function suggestSalutation(first=''){const name=first.trim().toLocaleLowerCase('de-CH').split(/[ -]/)[0];return female.has(name)?'Liebe':male.has(name)?'Lieber':'';}
+export function suggestSalutation(first=''){const name=first.trim().toLocaleLowerCase('de-CH').split(/[ -]/)[0];return female.has(name)?'Liebe':male.has(name)?'Lieber':name?'Hallo':'';}
 export function validEmail(email){return typeof email==='string'&&email.length<=254&&/^[^\s@<>;,]+@[^\s@<>;,]+\.[^\s@<>;,]+$/.test(email);}
 const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 export function confirmationMessage({reservation:r,body=DEFAULT_BODY,signature=DEFAULT_SIGNATURE,subject}){
  const d=typeof r.data==='string'?JSON.parse(r.data):r.data||{};
  const first=String(d.first||'').trim(),salutation=d.salutation;
- if(!first||first.length>100||/[\r\n]/.test(first)||!['Liebe','Lieber'].includes(salutation))throw Error('Vorname und Anrede bitte prüfen und ergänzen.');
+ if(!first||first.length>100||/[\r\n]/.test(first)||!['Liebe','Lieber','Hallo'].includes(salutation))throw Error('Vorname und Anrede bitte prüfen und ergänzen.');
  if(!validEmail(d.email))throw Error('Bitte eine gültige E-Mail-Adresse des Gastes angeben.');
  if(!/^\d{4}-\d{2}-\d{2}$/.test(r.date)||!/^([01]\d|2[0-3]):[0-5]\d$/.test(r.time)||!Number.isInteger(r.people)||r.people<1)throw Error('Datum, Uhrzeit und Personenzahl bitte ergänzen.');
  if(!body.trim()||body.length>12000||signature.length>4000)throw Error('Antworttext und Signatur prüfen.');

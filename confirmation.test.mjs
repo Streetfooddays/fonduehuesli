@@ -10,8 +10,10 @@ test('custom response and gondola are included without HTML injection',()=>{
  const m=confirmationMessage({reservation:{...booking,gondola:true,data:{...booking.data,first:'Sybille <script>'}},body:DEFAULT_BODY+'\n\nWir haben deinen Wunsch vorgemerkt. {{zeit}}',signature:DEFAULT_SIGNATURE});assert.ok(m.text.includes('in einer Fonduegondel (maximal 4 Personen)'));assert.ok(m.text.includes('Wunsch vorgemerkt. 19:00'));assert.ok(!m.html.includes('<script>'));assert.ok(m.html.includes('&lt;script&gt;'));
 });
 test('ambiguous names and recipient addresses must be reviewed, incomplete booking cannot send',()=>{
- assert.equal(suggestSalutation('Sybille'),'Liebe');assert.equal(suggestSalutation('Oliver'),'Lieber');assert.equal(suggestSalutation('Kim'),'');assert.equal(suggestSalutation(''),'');
+ assert.equal(suggestSalutation('Sybille'),'Liebe');assert.equal(suggestSalutation('Oliver'),'Lieber');assert.equal(suggestSalutation('Kim'),'Hallo');assert.equal(suggestSalutation(''),'');
  for(const email of ['a@example.com,b@example.com','Someone <a@example.com>','a@example.com\r\nBcc:x@y.com'])assert.equal(validEmail(email),false);
  for(const data of [{first:'',salutation:'Liebe',email:'x@example.com'},{first:'Kim',salutation:'',email:'x@example.com'},{first:'Kim',salutation:'Liebe',email:'x@example.com, y@example.com'}])assert.throws(()=>confirmationMessage({reservation:{...booking,data}}));
  assert.throws(()=>confirmationMessage({reservation:{...booking,time:''}}));assert.throws(()=>confirmationMessage({reservation:booking,subject:'Subject\nBcc:x@y.com'}));
 });
+
+test('unknown first names automatically receive a neutral greeting and do not require guessing',()=>{const m=confirmationMessage({reservation:{...booking,data:{...booking.data,first:'Kim',salutation:suggestSalutation('Kim')}}});assert(m.text.startsWith('Hallo Kim'));});

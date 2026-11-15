@@ -1,0 +1,1 @@
+tr.gondola-reservation:not(.arrived-row)>td,.excel-table tr.gondola-reservation:not(.arrived-row):not(.sheet-waitlist):not(.sheet-cancelled)>td{background:#fff6cc}.gondola-reservation{--gondola-tint:#fff6cc}@media print{tr.gondola-reservation:not(.arrived-row)>td{background:#fff6cc!important;print-color-adjust:exact;-webkit-print-color-adjust:exact}}

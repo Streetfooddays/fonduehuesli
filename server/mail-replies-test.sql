@@ -1,0 +1,30 @@
+begin;
+do $test$
+declare uid uuid; reply_id uuid:=gen_random_uuid(); unlinked_id uuid:=gen_random_uuid(); p jsonb; original_booking jsonb; original_mails jsonb; booking_count integer; confirmation_count integer; blocked boolean;
+begin
+ select t.user_id into uid from public.team_members t join auth.users u on u.id=t.user_id where t.active and u.email_confirmed_at is not null limit 1;
+ if uid is null then raise exception 'Verified member required';end if;
+ insert into public.reservations(id,date,time,period,people,data,status,table_no,source) values('reply-only-test-20261115','2099-12-27','18:00','abend',4,'{"last":"Synthetic","first":"Anna"}','Offen','1','Test');
+ insert into public.mail_inbox(id,message_id,sender,subject,body,state,reservation_id) values('reply-only-linked-test-20261115','<original@example.invalid>','test@example.invalid','Synthetic request','','imported','reply-only-test-20261115'),('reply-only-unlinked-test-20261115','','test@example.invalid','Synthetic request','','review',null);
+ select to_jsonb(r) into original_booking from public.reservations r where id='reply-only-test-20261115';select jsonb_agg(to_jsonb(m) order by id) into original_mails from public.mail_inbox m where id like 'reply-only-%-test-20261115';select count(*) into booking_count from public.reservations;select count(*) into confirmation_count from public.mail_outbox;
+ p:=jsonb_build_object('id',reply_id,'mail_id','reply-only-linked-test-20261115','recipient_reviewed',true,'message',jsonb_build_object('recipient','test@example.invalid','subject','Re: Synthetic request','text','Hallo Anna, welche Uhrzeit passt euch?','html','<p>Hallo Anna, welche Uhrzeit passt euch?</p>'));
+ perform set_config('request.jwt.claims','{}',true);blocked:=false;begin perform public.mail_reply_prepare(p);exception when insufficient_privilege then blocked:=true;end;assert blocked,'Anonymous caller rejected';
+ assert not has_function_privilege('anon','public.mail_reply_prepare(jsonb)','execute');assert not has_function_privilege('authenticated','public.mail_reply_delivery(jsonb)','execute');assert not has_table_privilege('authenticated','public.mail_replies','insert');
+ perform set_config('request.jwt.claims',jsonb_build_object('sub',uid,'role','authenticated')::text,true);
+ perform public.mail_reply_prepare(p);perform public.mail_reply_prepare(p);assert (select count(*) from public.mail_replies where id=reply_id)=1,'Replay must not duplicate the answer';assert (select in_reply_to='<original@example.invalid>' from public.mail_replies where id=reply_id);
+ blocked:=false;begin perform public.mail_reply_prepare(jsonb_set(p,'{message,text}','"Changed after prepare"'));exception when raise_exception then blocked:=true;end;assert blocked,'Prepared answer is frozen';
+ perform public.mail_reply_prepare(p||jsonb_build_object('id',unlinked_id,'mail_id','reply-only-unlinked-test-20261115'));
+ assert (select count(*) from public.reservations)=booking_count,'Unlinked replies never create reservations';
+ perform set_config('request.jwt.claims',jsonb_build_object('sub',uid,'role','service_role')::text,true);
+ perform public.mail_reply_delivery(jsonb_build_object('id',reply_id,'action','claim'));
+ blocked:=false;begin perform public.mail_reply_delivery(jsonb_build_object('id',reply_id,'action','claim'));exception when raise_exception then blocked:=true;end;assert blocked,'Concurrent sends are leased';
+ perform public.mail_reply_delivery(jsonb_build_object('id',reply_id,'action','failed','error','Synthetic failure'));
+ assert (select state='failed' from public.mail_replies where id=reply_id);
+ perform public.mail_reply_delivery(jsonb_build_object('id',reply_id,'action','claim'));
+ perform public.mail_reply_delivery(jsonb_build_object('id',reply_id,'action','sent','provider_id','synthetic-provider-id'));
+ assert (select state='sent' and sent_at is not null from public.mail_replies where id=reply_id);
+ assert (select to_jsonb(r)=original_booking from public.reservations r where id='reply-only-test-20261115'),'Reply must not change any reservation field';
+ assert (select jsonb_agg(to_jsonb(m) order by id)=original_mails from public.mail_inbox m where id like 'reply-only-%-test-20261115'),'Request state and links remain unchanged';
+ assert (select count(*) from public.mail_outbox)=confirmation_count,'Confirmation outbox remains untouched';
+end $test$;
+rollback;

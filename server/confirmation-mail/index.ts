@@ -1,3 +1,4 @@
+import {replyMessage} from './reply-core.mjs';
 import {createClient} from 'npm:@supabase/supabase-js@2.118.0';
 import {confirmationMessage,FROM} from './confirmation-core.mjs';
 const ORIGIN='https://fonduehuesli-reservationen.onrender.com';
@@ -28,10 +29,27 @@ Deno.serve(async(req:Request)=>{
   const raw=await req.text();if(raw.length>30000)return answer({error:'Antwort ist zu lang.'},413);const body=JSON.parse(raw);
   const c=await rpc(admin,'mail_credentials');if(!c?.enabled)return answer({error:'Resend ist noch nicht verbunden.'},409);
   if(body.action==='status')return answer(await domainStatus(c.api_key));
-  if(!['send','retry'].includes(body.action))return answer({error:'Aktion prüfen.'},400);
+  if(!['send','retry','reply','reply_retry'].includes(body.action))return answer({error:'Aktion prüfen.'},400);
   // Check before changing a reservation or creating an outbox entry.
   const domain=await domainStatus(c.api_key);if(!domain.ready)return answer({error:'Versand noch nicht freigeschaltet: Die Domain fonduehuesli.ch muss in Resend per DNS verifiziert werden.',domain},409);
   const client=createClient(url,Deno.env.get('SUPABASE_ANON_KEY')!,{global:{headers:{Authorization:'Bearer '+jwt}},auth:{persistSession:false,autoRefreshToken:false}});
+  if(body.action==='reply'||body.action==='reply_retry'){
+   let reply;
+   if(body.action==='reply_retry')reply=await rpc(client,'mail_reply_retry',{p:{id:body.id}});
+   else{
+    if(body.recipient_reviewed!==true)return answer({error:'Bitte die Empfängeradresse prüfen.'},400);
+    const message=replyMessage(body);
+    reply=await rpc(client,'mail_reply_prepare',{p:{id:body.id,mail_id:body.mail_id,recipient_reviewed:true,message}});
+   }
+   if(reply.state==='sent')return answer({ok:true,already_sent:true,id:reply.id,reply_only:true});
+   reply=await rpc(admin,'mail_reply_delivery',{p:{id:reply.id,action:'claim'}});
+   if(reply.state==='sent')return answer({ok:true,already_sent:true,id:reply.id,reply_only:true});
+   let sent;
+   try{sent=await resend(c.api_key,'/emails','POST',{from:FROM,to:[reply.recipient],reply_to:'reservation@fonduehuesli.ch',subject:reply.subject,text:reply.message_text,html:reply.message_html,...(reply.in_reply_to?{headers:{'In-Reply-To':reply.in_reply_to,References:reply.in_reply_to}}:{})},'reply/'+reply.id);if(!sent.id)throw Error('Resend hat keine Versand-ID zurückgegeben.');}
+   catch(error){await rpc(admin,'mail_reply_delivery',{p:{id:reply.id,action:'failed',error:error instanceof Error?error.message:'Versand fehlgeschlagen.'}});return answer({error:'Antwortversand fehlgeschlagen. Die Reservation wurde nicht verändert. Bitte die gespeicherte Antwort erneut senden.',reply_id:reply.id},502);}
+   await rpc(admin,'mail_reply_delivery',{p:{id:reply.id,action:'sent',provider_id:sent.id}});
+   return answer({ok:true,id:reply.id,reply_only:true});
+  }
   let outbox;
   if(body.action==='retry')outbox=await rpc(client,'confirmation_retry',{p:{id:body.id}});
   else {

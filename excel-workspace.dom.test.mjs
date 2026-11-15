@@ -1,3 +1,4 @@
+import {openReplyComposer} from './public/reply-composer.mjs';
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {parseHTML} from 'linkedom';
@@ -8,8 +9,8 @@ function mount(t,{rows=[],inbox=[],body='',date='2099-01-01',saveOverride=null,d
  const {window,document}=parseHTML('<html><body><main id="root"></main></body></html>');globalThis.window=window;globalThis.document=document;
  // LinkeDOM models DOM events. These three browser layout/dialog APIs are recorded rather than rendered.
  window.HTMLElement.prototype.scrollIntoView=function(){this.dataset.scrolled='true';};window.HTMLElement.prototype.showModal=function(){this.setAttribute('open','');};window.HTMLElement.prototype.close=function(){this.removeAttribute('open');};
- Object.defineProperty(window.HTMLSelectElement.prototype,'value',{get(){return this.getAttribute('data-test-value')||this.querySelector('option[selected]')?.getAttribute('value')||this.querySelector('option')?.getAttribute('value')||'';},set(v){this.setAttribute('data-test-value',v);},configurable:true});
- const state={rows,inbox,outbox:[],layouts:[]},calls=[];const saveReservation=async payload=>{calls.push(['save',structuredClone(payload)]);if(saveOverride)await saveOverride(payload,state);const i=state.rows.findIndex(r=>r.id===(payload.id||payload.createId)),old=state.rows[i]||{};const saved={...old,id:payload.id||payload.createId,date:payload.date,time:payload.time,people:payload.people,status:payload.status,table_no:payload.tableNo,note:payload.note,data:JSON.stringify(payload.data),revision:(old.revision||0)+1};if(i>=0)state.rows[i]=saved;else state.rows.push(saved);};const controller=renderExcelWorkspace(document.querySelector('#root'),{date,saveReservation,afterSave:async(p,id)=>state.rows.find(r=>r.id===(p.id||id)),getState:()=>state,needsAction:m=>!['confirmed','ignored'].includes(m.state),onDate(){},readMail:async()=>({body}),notice(){},deleteReservation:id=>{calls.push(['delete-request',id]);deleteRequest?.(id);},editRequest:id=>calls.push(['edit',id]),transfer:async id=>{calls.push(['transfer',id]);return null;},ignore:async id=>{calls.push(['ignore',id]);state.inbox.find(m=>m.id===id).state='ignored';}});
+ Object.defineProperty(window.HTMLSelectElement.prototype,'value',{get(){const value=this.getAttribute('data-test-value');if(value!==null)return value;const option=this.querySelector('option[selected]')||this.querySelector('option');return option?(option.getAttribute('value')??option.textContent):'';},set(v){this.setAttribute('data-test-value',v);},configurable:true});
+ const state={rows,inbox,outbox:[],layouts:[]},calls=[];const saveReservation=async payload=>{calls.push(['save',structuredClone(payload)]);if(saveOverride)await saveOverride(payload,state);const i=state.rows.findIndex(r=>r.id===(payload.id||payload.createId)),old=state.rows[i]||{};const saved={...old,id:payload.id||payload.createId,date:payload.date,time:payload.time,people:payload.people,status:payload.status,table_no:payload.tableNo,note:payload.note,data:JSON.stringify(payload.data),revision:(old.revision||0)+1};if(i>=0)state.rows[i]=saved;else state.rows.push(saved);};const controller=renderExcelWorkspace(document.querySelector('#root'),{date,saveReservation,afterSave:async(p,id)=>state.rows.find(r=>r.id===(p.id||id)),getState:()=>state,needsAction:m=>!['confirmed','ignored'].includes(m.state),onDate(){},readMail:async()=>({body}),notice(){},replyOnly:id=>calls.push(['reply-only',id]),deleteReservation:id=>{calls.push(['delete-request',id]);deleteRequest?.(id);},editRequest:id=>calls.push(['edit',id]),transfer:async id=>{calls.push(['transfer',id]);return null;},ignore:async id=>{calls.push(['ignore',id]);state.inbox.find(m=>m.id===id).state='ignored';}});
  t.after(()=>{controller.dispose();delete globalThis.window;delete globalThis.document;});return {document,state,calls,controller};
 }
 const tick=()=>new Promise(resolve=>setImmediate(resolve));
@@ -87,4 +88,22 @@ test('day scrollbar is rendered before the table, and gondola color and free cou
 test('each saved reservation exposes its own delete action; preview and blank entry rows do not',t=>{
  const {document,state,calls}=mount(t,{rows:[row('r')],inbox:[request('new')]});const saved=document.querySelector('[data-sheet-id="r"]');assert(saved.querySelector('[data-sheet-delete]'));assert.equal(document.querySelector('[data-sheet-new="true"] [data-sheet-delete]'),null);assert.equal(document.querySelector('[data-sheet-preview] [data-sheet-delete]'),null);
  saved.querySelector('[data-sheet-delete]').click();assert.deepEqual(calls,[['delete-request','r']]);assert.equal(state.rows.length,1,'Only the confirmation is requested at this stage');
+});
+
+test('only reply opens the response composer for unimported and linked requests without saving or confirming a reservation',t=>{
+ const r=row('r'),m=request('m',r);const {document,state,calls}=mount(t,{rows:[r],inbox:[m]});document.querySelector('#wb-reply-only').click();assert.deepEqual(calls,[['reply-only','m']]);assert.equal(state.rows.length,1);assert.equal(state.rows[0].status,'Offen');assert.equal(state.inbox[0].state,'imported');
+});
+
+test('the reply editor submits an email-only payload and preserves the linked reservation and request state',async t=>{
+ const r=row('r'),m=request('m',r),snapshot=structuredClone(r);const {document,state}=mount(t,{rows:[r],inbox:[m]});const dialog=document.createElement('dialog');document.body.append(dialog);const calls=[];
+ openReplyComposer(dialog,{mail:m,booking:r,signature:'Sabrina',send:async payload=>calls.push(payload),readDelivery:async()=>null,retry:async()=>{},sent:async()=>{}});
+ dialog.querySelector('[name=body]').value='Welche Ankunftszeit passt euch?';dialog.querySelector('[name=recipientReviewed]').checked=true;await dialog.querySelector('[data-reply-form]').onsubmit({preventDefault(){}});
+ assert.equal(calls.length,1);assert.equal(calls[0].mail_id,'m');assert.equal(calls[0].recipient,'anna@example.invalid');assert.equal(calls[0].body,'Welche Ankunftszeit passt euch?');assert.equal(calls[0].recipient_reviewed,true);for(const key of ['reservation','date','time','people','status','tableNo'])assert(!(key in calls[0]));assert.deepEqual(state.rows[0],snapshot);assert.equal(state.inbox[0].state,'imported');assert.equal(dialog.hasAttribute('open'),false);
+});
+
+test('a failed standalone reply retries the frozen answer with the same ID instead of composing a second send',async t=>{
+ const m=request('m');const {document}=mount(t,{inbox:[m]});const dialog=document.createElement('dialog');document.body.append(dialog);let payload,done=0;const retryIds=[];
+ openReplyComposer(dialog,{mail:m,signature:'Sabrina',send:async p=>{payload=p;throw Error('Synthetic offline');},readDelivery:async id=>({id,state:'failed',recipient:'anna@example.invalid',subject:'Re: Synthetic request',message_text:'Saved response'}),retry:async id=>retryIds.push(id),sent:async()=>done++});
+ dialog.querySelector('[name=body]').value='Bitte melde uns deine Ankunftszeit.';dialog.querySelector('[name=recipientReviewed]').checked=true;await dialog.querySelector('[data-reply-form]').onsubmit({preventDefault(){}});
+ assert(dialog.querySelector('[name=body]').disabled);assert.equal(dialog.querySelector('[data-reply-preview]').textContent,'Saved response');assert.equal(dialog.querySelector('[data-reply-retry]').hidden,false);await dialog.querySelector('[data-reply-retry]').onclick();assert.deepEqual(retryIds,[payload.id]);assert.equal(done,1);
 });

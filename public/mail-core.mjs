@@ -1,0 +1,52 @@
+import {freeTextReservation} from './free-text.mjs';
+import {parseReservationDate,splitReservationName} from './reservation-fields.mjs';
+const names={date:['datum','reservationsdatum','reservationswunsch','wunschdatum','reservierungsdatum','gewünschtes datum','gewuenschtes datum','reservation am','reservierung am','reservation für','reservierung für'],time:['zeit','uhrzeit','ankunftszeit'],people:['personen','anzahl personen','personenzahl','anzahl gäste','anzahl gaeste','anzahl pers.','anzahl pers','anzahl personen.'],last:['nachname','name','name/vorname','name / vorname','vorname/nachname','vorname / nachname','nachname/vorname','nachname / vorname','vorname und nachname','name und vorname','vollständiger name','vollstaendiger name','familienname','nachname, vorname','name, vorname','voller name'],first:['vorname','vorname(n)','first name'],email:['e-mail','email','e-mail-adresse','mailadresse'],phone:['telefon','telefonnummer','mobile'],street:['strasse','straße','strasse/nr','strasse/nr.','strasse / nr','straße/nr'],zip:['plz','postleitzahl'],city:['ort','wohnort'],company:['firma','unternehmen'],comment:['kommentar','bemerkungen','nachricht','mitteilung','wünsche','wuensche'],gondola:['fonduegondel','gondel']};
+export function htmlText(html=''){
+ if(html.startsWith('data:text/html;base64,'))try{html=new TextDecoder().decode(Uint8Array.from(atob(html.slice(22)),c=>c.charCodeAt(0)));}catch{return '';}
+ return html.replace(/<(script|style)\b[^>]*>[\s\S]*?<\/\1>/gi,'').replace(/<\/(?:td|th)>\s*<(?:td|th)\b[^>]*>/gi,': ').replace(/<(?:br|\/p|\/div|\/tr|\/li)\b[^>]*>/gi,'\n').replace(/<[^>]*>/g,'').replace(/&#(x[0-9a-f]+|\d+);/gi,(_,n)=>{const code=n[0].toLowerCase()==='x'?parseInt(n.slice(1),16):Number(n);return code>0&&code<=0x10ffff?String.fromCodePoint(code):'';}).replace(/&(amp|lt|gt|quot|apos|nbsp);/g,(_,k)=>({amp:'&',lt:'<',gt:'>',quot:'"',apos:"'",nbsp:' '}[k]));
+}
+export function parseMail(text,options={}){
+ const found={},issues=[],dateValues=[],combinedNames=[];const lines=String(text||'').replace(/\r/g,'').split('\n').map(s=>s.replace(/^\s*>\s?/,'').trim()).filter(Boolean);
+ for(let i=0;i<lines.length;i++){
+  const line=lines[i],match=line.match(/^([^:]{2,40}):\s*(.*)$/);let label=match?match[1].trim().toLowerCase():line.toLowerCase(),value=match?match[2].trim():'';
+  label=label.replace(/\s*\*+$/,'').replace(/\s+/g,' ').trim();
+  const key=Object.keys(names).find(k=>names[k].includes(label));if(!key)continue;
+  if(!value&&lines[i+1]){const nextLabel=lines[i+1].replace(/:$/,'').trim().toLowerCase().replace(/\s*\*+$/,'').replace(/\s+/g,' ').trim();if(!Object.values(names).some(list=>list.includes(nextLabel)))value=lines[++i];}
+  if(!value)continue;value=value.slice(0,4000);if(key==='date'){dateValues.push(value);continue;}if(key==='last'&&!['nachname','familienname'].includes(label)){combinedNames.push({value,label});continue;}if(found[key]&&found[key]!==value)issues.push('Mehrere Angaben: '+label);else found[key]=value;
+ }
+ const hasFormFields=!!(dateValues.length&&found.time&&found.people&&(found.last||found.first||combinedNames.length));
+ const free=hasFormFields?null:freeTextReservation(text,options);
+ let date='',time='',people=null;
+ const inputs=dateValues.length?dateValues:free?[]:lines.filter(line=>/reservier|reservati/i.test(line)&&! /^(?:von|gesendet|sent|from):/i.test(line));
+ const parsedDates=inputs.map(value=>parseReservationDate(value,options));
+ const uniqueDates=[...new Set(parsedDates.map(p=>p.date).filter(Boolean))];
+ issues.push(...new Set(parsedDates.flatMap(p=>p.issues)));
+ if(uniqueDates.length===1&&!parsedDates.some(p=>p.issues.some(i=>/Mehrere Datumsangaben|Ungültige Datumsangabe/.test(i))))date=uniqueDates[0];
+ else if(uniqueDates.length>1)issues.push('Mehrere Angaben: unterschiedliche Reservationsdaten.');
+ const combined=combinedNames[0]||{value:'',label:''};
+ if(new Set(combinedNames.map(n=>n.value.toLowerCase())).size>1)issues.push('Mehrere Angaben: unterschiedliche Namen.');
+ const parsedName=splitReservationName({last:found.last||'',first:found.first||'',combined:combined.value,label:combined.label,knownFirstNames:options.knownFirstNames||[]});
+ found.last=parsedName.last;found.first=parsedName.first;issues.push(...parsedName.issues);
+ const clock=(found.time||'').replace(/^(\d{1,2})(\d{2})$/,'$1:$2');
+ const t=clock.match(/^([01]?\d|2[0-3])[:.]([0-5]\d)(?:\s*Uhr)?$/i);if(t)time=t[1].padStart(2,'0')+':'+t[2];
+ const n=(found.people||'').match(/^(\d{1,4})(?:\s*(?:Personen|Person|Gäste|Gaeste))?$/i);if(n&&Number(n[1])>=1&&Number(n[1])<=1000)people=Number(n[1]);
+ if(free){if(!dateValues.length)date=free.draft.date;if(!found.time)time=free.draft.time;if(!found.people)people=free.draft.people;for(const [k,v] of Object.entries(free.draft.data))if(!found[k])found[k]=v;issues.push(...free.issues);}
+ if(!date)issues.push('Datum fehlt oder ist nicht eindeutig.');if(!time)issues.push('Uhrzeit fehlt oder ist nicht eindeutig.');if(!people)issues.push('Personenzahl fehlt oder ist nicht eindeutig.');if(!found.last&&!found.first)issues.push('Name fehlt.');
+ const data={};for(const k of ['last','first','email','phone','street','zip','city','company','comment'])data[k]=found[k]||'';
+ const mailto=data.email.match(/^([^\s<>]+@[^\s<>]+)\s*<mailto:([^<>]+)>$/i);if(mailto&&mailto[1].toLowerCase()===mailto[2].toLowerCase())data.email=mailto[1];
+ if(data.email&&!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(data.email)){data.email='';issues.push('E-Mail-Adresse prüfen.');}
+ if(found.gondola&&!/^(nein|no|false|0)$/i.test(found.gondola)){data.gondola='Ja';issues.push('Gondelwunsch bitte manuell zuordnen.');}
+ if(/\b(stornier\w*|absage|änderung|aenderung|verschieb\w*|annullier\w*)\b/i.test(text))issues.push('Mögliche Änderung oder Stornierung: manuell prüfen.');
+ return {draft:{date,time,people,data},issues,complete:issues.length===0};
+}
+export async function verifySignature(payload,headers,secret,now=Date.now()/1000){
+ const id=headers.get('svix-id'),ts=headers.get('svix-timestamp'),sig=headers.get('svix-signature');
+ if(!id||!ts||!sig||!/^\d+$/.test(ts)||Math.abs(now-Number(ts))>300||!secret?.startsWith('whsec_'))return false;
+ try{const bytes=Uint8Array.from(atob(secret.slice(6)),c=>c.charCodeAt(0));const key=await crypto.subtle.importKey('raw',bytes,{name:'HMAC',hash:'SHA-256'},false,['verify']);const data=new TextEncoder().encode(`${id}.${ts}.${payload}`);
+  for(const part of sig.split(' ')){if(!part.startsWith('v1,'))continue;try{const signature=Uint8Array.from(atob(part.slice(3)),c=>c.charCodeAt(0));if(await crypto.subtle.verify('HMAC',key,signature,data))return true;}catch{}}
+ }catch{}return false;
+}
+
+export function reservationCandidate(parsed){
+ const d=parsed.draft;return !!(d.date&&d.people&&(d.data.last||d.data.first)&&!parsed.issues.some(s=>/Mehrere Angaben|Änderung|Stornierung|gekürzt/.test(s)));
+}

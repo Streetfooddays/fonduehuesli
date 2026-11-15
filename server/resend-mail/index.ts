@@ -34,11 +34,11 @@ Deno.serve(async(req:Request)=>{
    const mail=await api(c.api_key,'/emails/receiving/'+id+'?html_format=cid');
    const recipients=[...(mail.to||[]),...(mail.received_for||[])].map((x:string)=>x.toLowerCase());
    if(!recipients.some((s:string)=>s===RECIPIENT||s.includes('<'+RECIPIENT+'>')))return answer({ok:true,ignored:true});
-   const fullText=String(mail.text||htmlText(mail.html||''));const text=fullText.slice(0,60000);const parsed=parseMail(text,{receivedAt:mail.created_at||mail.received_at||new Date(),knownFirstNames:await knownFirstNames()});
+   const fullText=String(mail.text||htmlText(mail.html||''));const text=fullText.slice(0,60000);const parsed=parseMail(text,{receivedAt:mail.created_at||mail.received_at||new Date(),knownFirstNames:await knownFirstNames(),sender:String(mail.from||''),subject:String(mail.subject||'')});
    if(fullText.length>60000){parsed.issues.push('Mailtext gekürzt: Originalmail im Postfach prüfen.');parsed.complete=false;}
    if((mail.attachments||[]).some((a:any)=>a.content_disposition!=='inline')){parsed.issues.push('Anhänge im Originalpostfach prüfen.');parsed.complete=false;}
    if(/\b(storn|absage|änderung|aenderung|verschieb|annull)/i.test(mail.subject||'')){parsed.issues.push('Betreff weist auf eine Änderung oder Stornierung hin.');parsed.complete=false;}
-   const result=await rpc('mail_ingest',{p:{id,message_id:String(mail.message_id||''),sender:String(mail.from||''),subject:String(mail.subject||''),body:text,...parsed,candidate:reservationCandidate(parsed)}});
+   const result=await rpc('mail_ingest',{p:{id,message_id:String(mail.message_id||''),sender:String(mail.from||''),subject:String(mail.subject||''),subject:String(mail.subject||''),body:text,...parsed,candidate:reservationCandidate(parsed)}});
    // Prepared automation is gated by persistent configuration (initially disabled).
    // Any automation problem leaves the received request available for manual handling.
    let automatic;

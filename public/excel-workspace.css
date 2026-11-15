@@ -5,4 +5,6 @@
 
 @media print{.wb-plan-dialog{display:none!important}}
 
-@keyframes wb-request-pulse{0%,100%{box-shadow:inset 0 0 0 1px #4774a755}50%{box-shadow:inset 0 0 0 2px #4774a7bb}}.excel-table tr.sheet-current-request>td{animation:wb-request-pulse 2.4s ease-in-out infinite}.excel-table tr.sheet-current-request>td:first-child{border-left:4px solid #4774a7}@media(prefers-reduced-motion:reduce){.excel-table tr.sheet-current-request>td{animation:none;box-shadow:inset 0 0 0 1px #4774a7}}@media print{.excel-table tr.sheet-current-request>td{animation:none;box-shadow:none}}
+@keyframes wb-request-pulse{0%,100%{box-shadow:inset 0 0 0 999px #70a7e408}50%{box-shadow:inset 0 0 0 999px #70a7e432}}.excel-table tr.sheet-current-request>td{animation:wb-request-pulse 2.4s ease-in-out infinite}.excel-table tr.sheet-current-request>td:first-child{border-left:4px solid #4774a7}@media(prefers-reduced-motion:reduce){.excel-table tr.sheet-current-request>td{animation:none;box-shadow:inset 0 0 0 1px #4774a7}}@media print{.excel-table tr.sheet-current-request>td{animation:none;box-shadow:none}}
+
+.wb-plan-date{margin:.5rem .7rem;max-width:16rem;font-size:.85rem}.sheet-request-preview td{background:#edf5ff;border-top:2px dashed #4774a7;white-space:pre-wrap}.sheet-request-preview small{display:block;font-size:.7rem}.sheet-request-preview .small{white-space:normal}

@@ -1,3 +1,4 @@
+import {freeTextReservation} from './free-text.mjs';
 import {parseReservationDate,splitReservationName} from './reservation-fields.mjs';
 const names={date:['datum','reservationsdatum','reservationswunsch','wunschdatum','reservierungsdatum','gewünschtes datum','gewuenschtes datum','reservation am','reservierung am','reservation für','reservierung für'],time:['zeit','uhrzeit','ankunftszeit'],people:['personen','anzahl personen','personenzahl','anzahl gäste','anzahl gaeste','anzahl pers.','anzahl pers','anzahl personen.'],last:['nachname','name','name/vorname','name / vorname','vorname/nachname','vorname / nachname','nachname/vorname','nachname / vorname','vorname und nachname','name und vorname','vollständiger name','vollstaendiger name','familienname','nachname, vorname','name, vorname','voller name'],first:['vorname','vorname(n)','first name'],email:['e-mail','email','e-mail-adresse','mailadresse'],phone:['telefon','telefonnummer','mobile'],street:['strasse','straße','strasse/nr','strasse/nr.','strasse / nr','straße/nr'],zip:['plz','postleitzahl'],city:['ort','wohnort'],company:['firma','unternehmen'],comment:['kommentar','bemerkungen','nachricht','mitteilung','wünsche','wuensche'],gondola:['fonduegondel','gondel']};
 export function htmlText(html=''){
@@ -13,8 +14,10 @@ export function parseMail(text,options={}){
   if(!value&&lines[i+1]){const nextLabel=lines[i+1].replace(/:$/,'').trim().toLowerCase().replace(/\s*\*+$/,'').replace(/\s+/g,' ').trim();if(!Object.values(names).some(list=>list.includes(nextLabel)))value=lines[++i];}
   if(!value)continue;value=value.slice(0,4000);if(key==='date'){dateValues.push(value);continue;}if(key==='last'&&!['nachname','familienname'].includes(label)){combinedNames.push({value,label});continue;}if(found[key]&&found[key]!==value)issues.push('Mehrere Angaben: '+label);else found[key]=value;
  }
+ const hasFormFields=!!(dateValues.length&&found.time&&found.people&&(found.last||found.first||combinedNames.length));
+ const free=hasFormFields?null:freeTextReservation(text,options);
  let date='',time='',people=null;
- const inputs=dateValues.length?dateValues:lines.filter(line=>/reservier|reservati/i.test(line)&&! /^(?:von|gesendet|sent|from):/i.test(line));
+ const inputs=dateValues.length?dateValues:free?[]:lines.filter(line=>/reservier|reservati/i.test(line)&&! /^(?:von|gesendet|sent|from):/i.test(line));
  const parsedDates=inputs.map(value=>parseReservationDate(value,options));
  const uniqueDates=[...new Set(parsedDates.map(p=>p.date).filter(Boolean))];
  issues.push(...new Set(parsedDates.flatMap(p=>p.issues)));
@@ -27,6 +30,7 @@ export function parseMail(text,options={}){
  const clock=(found.time||'').replace(/^(\d{1,2})(\d{2})$/,'$1:$2');
  const t=clock.match(/^([01]?\d|2[0-3])[:.]([0-5]\d)(?:\s*Uhr)?$/i);if(t)time=t[1].padStart(2,'0')+':'+t[2];
  const n=(found.people||'').match(/^(\d{1,4})(?:\s*(?:Personen|Person|Gäste|Gaeste))?$/i);if(n&&Number(n[1])>=1&&Number(n[1])<=1000)people=Number(n[1]);
+ if(free){if(!dateValues.length)date=free.draft.date;if(!found.time)time=free.draft.time;if(!found.people)people=free.draft.people;for(const [k,v] of Object.entries(free.draft.data))if(!found[k])found[k]=v;issues.push(...free.issues);}
  if(!date)issues.push('Datum fehlt oder ist nicht eindeutig.');if(!time)issues.push('Uhrzeit fehlt oder ist nicht eindeutig.');if(!people)issues.push('Personenzahl fehlt oder ist nicht eindeutig.');if(!found.last&&!found.first)issues.push('Name fehlt.');
  const data={};for(const k of ['last','first','email','phone','street','zip','city','company','comment'])data[k]=found[k]||'';
  const mailto=data.email.match(/^([^\s<>]+@[^\s<>]+)\s*<mailto:([^<>]+)>$/i);if(mailto&&mailto[1].toLowerCase()===mailto[2].toLowerCase())data.email=mailto[1];

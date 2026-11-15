@@ -14,7 +14,7 @@ begin
  assert not exists(select 1 from public.mail_outbox where reservation_id='wait-test-20261115'),'Waiting list never sends mail';
  blocked:=false;begin perform public.set_reservation_arrival(jsonb_build_object('id','wait-test-20261115','revision',rev,'arrived',true));exception when raise_exception then blocked:=true;end;assert blocked,'Waiting guests cannot check in';
  payload:=jsonb_set(payload,'{reservation}',((payload->'reservation')-'createId')||jsonb_build_object('id','wait-test-20261115','revision',rev,'status','Bestätigt','tableNo',''));
- blocked:=false;begin perform public.save_reservation(payload);exception when serialization_failure then blocked:=true;end;assert blocked,'Confirmation still requires capacity approval';
+ blocked:=false;begin perform public.save_reservation(payload);exception when sqlstate 'PT409' then blocked:=true;end;assert blocked,'Confirmation still requires capacity approval';
  payload:=jsonb_set(payload,'{reservation,status}','"Warteliste"');
  perform public.save_reservation(payload);
  assert (select received_at=receipt and status='Warteliste' and data::jsonb->>'comment'='Customer text' and note='Internal' from public.reservations where id='wait-test-20261115'),'Edits preserve receipt and separate customer/internal text';

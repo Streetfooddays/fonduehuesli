@@ -11,7 +11,7 @@ begin
  blocked:=false;begin perform public.excel_link_mail('{"mail_id":"test-excel-link-mail-20261115","reservation_id":"test-excel-link-20261115","revision":0}');exception when insufficient_privilege then blocked:=true;end;assert blocked,'Unauthenticated caller rejected';
  assert not has_function_privilege('anon','public.excel_link_mail(jsonb)','execute'),'Anon has no execution privilege';
  perform set_config('request.jwt.claims',jsonb_build_object('sub',uid,'role','authenticated')::text,true);
- blocked:=false;begin perform public.excel_link_mail('{"mail_id":"test-excel-link-mail-20261115","reservation_id":"test-excel-link-20261115","revision":5}');exception when serialization_failure then blocked:=true;end;assert blocked,'Stale reservation revision rejected';
+ blocked:=false;begin perform public.excel_link_mail('{"mail_id":"test-excel-link-mail-20261115","reservation_id":"test-excel-link-20261115","revision":5}');exception when sqlstate 'PT409' then blocked:=true;end;assert blocked,'Stale reservation revision rejected';
  update public.mail_inbox set draft=jsonb_set(draft,'{people}','5') where id='test-excel-link-mail-20261115';
  blocked:=false;begin perform public.excel_link_mail('{"mail_id":"test-excel-link-mail-20261115","reservation_id":"test-excel-link-20261115","revision":0}');exception when raise_exception then blocked:=true;end;assert blocked,'Different guest count requires review';
  update public.mail_inbox set draft=jsonb_set(draft,'{people}','4') where id='test-excel-link-mail-20261115';

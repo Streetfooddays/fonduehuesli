@@ -8,7 +8,7 @@ begin
  if m.id is null then raise exception 'Anfrage nicht gefunden.';end if;
  if exists(select 1 from public.mail_outbox where state<>'sent' and (mail_id=m.id or reservation_id=m.reservation_id)) then raise exception 'Bestätigungsversand ist noch offen. Bitte zuerst den Versand prüfen.';end if;
  if m.state='ignored' then return jsonb_build_object('id',m.id,'state','ignored');end if;
- if m.state='confirmed' then raise exception 'Diese Anfrage wurde bereits bestätigt. Bitte aktualisieren.' using errcode='40001';end if;
+ if m.state='confirmed' then raise exception 'Diese Anfrage wurde bereits bestätigt. Bitte aktualisieren.' using errcode='PT409';end if;
  -- Ignoring affects the inbox only, including when a provisional booking exists.
  update public.mail_inbox set state='ignored',updated=now() where id=m.id;
  return jsonb_build_object('id',m.id,'state','ignored');

@@ -12,9 +12,9 @@ begin
  assert blocked,'Unauthenticated caller must be rejected';
  assert not has_function_privilege('anon','public.delete_day_reservation(jsonb)','execute'),'Anon must have no execution privilege';
  perform set_config('request.jwt.claims',jsonb_build_object('sub',uid,'role','authenticated')::text,true);
- blocked:=false;begin perform public.delete_day_reservation('{"id":"test-day-delete-20261113","date":"2099-01-02","revision":0}');exception when serialization_failure then blocked:=true;end;
+ blocked:=false;begin perform public.delete_day_reservation('{"id":"test-day-delete-20261113","date":"2099-01-02","revision":0}');exception when sqlstate 'PT409' then blocked:=true;end;
  assert blocked,'Changed date must be rejected';
- blocked:=false;begin perform public.delete_day_reservation('{"id":"test-day-delete-20261113","date":"2099-01-01","revision":9}');exception when serialization_failure then blocked:=true;end;
+ blocked:=false;begin perform public.delete_day_reservation('{"id":"test-day-delete-20261113","date":"2099-01-01","revision":9}');exception when sqlstate 'PT409' then blocked:=true;end;
  assert blocked,'Stale revision must be rejected';
  perform public.delete_day_reservation('{"id":"test-day-delete-20261113","date":"2099-01-01","revision":0}');
  assert (select status='Storniert' and deleted_at is not null and revision=1 and arrived from public.reservations where id='test-day-delete-20261113'),'Delete preserves history but excludes capacity';

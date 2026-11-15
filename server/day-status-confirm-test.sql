@@ -10,8 +10,8 @@ begin
  blocked:=false;begin perform public.confirm_day_reservation('{"id":"test-day-status-20261114","date":"2099-02-02","revision":0}');exception when insufficient_privilege then blocked:=true;end;assert blocked,'Unauthenticated caller rejected';
  assert not has_function_privilege('anon','public.confirm_day_reservation(jsonb)','execute'),'Anon cannot execute';
  perform set_config('request.jwt.claims',jsonb_build_object('sub',uid,'role','authenticated')::text,true);
- blocked:=false;begin perform public.confirm_day_reservation('{"id":"test-day-status-20261114","date":"2099-02-03","revision":0}');exception when serialization_failure then blocked:=true;end;assert blocked,'Changed date rejected';
- blocked:=false;begin perform public.confirm_day_reservation('{"id":"test-day-status-20261114","date":"2099-02-02","revision":4}');exception when serialization_failure then blocked:=true;end;assert blocked,'Stale revision rejected';
+ blocked:=false;begin perform public.confirm_day_reservation('{"id":"test-day-status-20261114","date":"2099-02-03","revision":0}');exception when sqlstate 'PT409' then blocked:=true;end;assert blocked,'Changed date rejected';
+ blocked:=false;begin perform public.confirm_day_reservation('{"id":"test-day-status-20261114","date":"2099-02-02","revision":4}');exception when sqlstate 'PT409' then blocked:=true;end;assert blocked,'Stale revision rejected';
  result:=public.confirm_day_reservation('{"id":"test-day-status-20261114","date":"2099-02-02","revision":0}');
  select * into booking from public.reservations where id='test-day-status-20261114';assert booking.status='Bestätigt' and booking.revision=1 and booking.people=2 and booking.table_no='1' and booking.arrived,'Only status/revision changes';
  assert (result->>'over_capacity')::boolean,'Manual confirmation reports over-capacity';

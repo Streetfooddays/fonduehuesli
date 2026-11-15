@@ -72,7 +72,7 @@ begin
  a:=private.automatic_confirmation_assess(p->>'mail_id');if (a->>'eligible')::boolean is distinct from true then return a;end if;
  select * into r from public.reservations where id=a->'reservation'->>'id' for update;
  select * into s from public.mail_confirmation_settings where id for share;
- if r.revision<>coalesce((p->>'revision')::integer,-1) or s.updated is distinct from (p->>'settings_updated')::timestamptz then raise exception 'Anfrage oder Vorlage wurde geändert.' using errcode='40001';end if;
+ if r.revision<>coalesce((p->>'revision')::integer,-1) or s.updated is distinct from (p->>'settings_updated')::timestamptz then raise exception 'Anfrage oder Vorlage wurde geändert.' using errcode='PT409';end if;
  if jsonb_typeof(msg) is distinct from 'object' or msg->>'recipient' is distinct from lower(btrim(r.data::jsonb->>'email')) or length(coalesce(msg->>'text','')) not between 10 and 20000 or length(coalesce(msg->>'html','')) not between 10 and 60000 or length(coalesce(msg->>'subject','')) not between 1 and 200 or msg->>'subject' ~ E'[\r\n]' then raise exception 'Empfänger und Bestätigungstext prüfen.';end if;
  update public.reservations set status='Bestätigt',reason='Automatisch bestätigt: keine Bemerkungen, Tagesbelegung maximal 70 Personen',revision=revision+1,updated=now() where id=r.id;
  update public.mail_inbox set state='imported',updated=now() where id=p->>'mail_id';

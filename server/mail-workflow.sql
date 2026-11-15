@@ -49,7 +49,7 @@ begin
   if note_text='' or length(note_text)>4000 then raise exception 'Bitte die offene Rückfrage angeben.';end if;
   if m.reservation_id is not null then
    select * into old from public.reservations where id=m.reservation_id;
-   if old.revision<>coalesce((p->>'revision')::integer,-1) then raise exception 'Reservation wurde geändert. Bitte aktualisieren.' using errcode='40001';end if;
+   if old.revision<>coalesce((p->>'revision')::integer,-1) then raise exception 'Reservation wurde geändert. Bitte aktualisieren.' using errcode='PT409';end if;
    if old.status='Storniert' then raise exception 'Reservation ist storniert.';end if;
    update public.reservations set status='Rückfrage nötig',revision=revision+1,updated=now() where id=m.reservation_id;
   end if;

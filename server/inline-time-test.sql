@@ -13,7 +13,7 @@ begin
  result:=public.set_reservation_time('{"id":"inline-time-synthetic","revision":0,"time":"12:30"}');
  assert result->>'time'='12:30' and result->>'period'='mittag';
  assert (select people=4 and revision=1 and arrived and status='Bestätigt' and table_no='1' and data::jsonb->>'comment'='Keep' and data::jsonb->'excel_source'->>'row'='12' and data::jsonb->>'time'='12:30' from public.reservations where id='inline-time-synthetic'),'Guest count, arrival, tables and source preserved';
- blocked:=false;begin perform public.set_reservation_time('{"id":"inline-time-synthetic","revision":0,"time":"19:00"}');exception when serialization_failure then blocked:=true;end;
+ blocked:=false;begin perform public.set_reservation_time('{"id":"inline-time-synthetic","revision":0,"time":"19:00"}');exception when sqlstate 'PT409' then blocked:=true;end;
  assert blocked,'Stale edit rejected';
  blocked:=false;begin perform public.set_reservation_time('{"id":"inline-time-synthetic","revision":1,"time":"24:60"}');exception when raise_exception then blocked:=true;end;
  assert blocked,'Invalid time rejected';

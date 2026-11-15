@@ -28,7 +28,7 @@ begin
  if x<35 or x>1475-width or y<145 or y>1390-height then raise exception 'Der Tisch muss innerhalb des Plans bleiben.';end if;
  perform pg_advisory_xact_lock(922002671);
  select * into layout from public.floor_plan_layouts where date=day for update;
- if coalesce(layout.revision,0)<>coalesce((p->>'revision')::integer,-1) then raise exception 'Der Tagesplan wurde inzwischen geändert. Bitte die Übersicht aktualisieren.' using errcode='40001';end if;
+ if coalesce(layout.revision,0)<>coalesce((p->>'revision')::integer,-1) then raise exception 'Der Tagesplan wurde inzwischen geändert. Bitte die Übersicht aktualisieren.' using errcode='PT409';end if;
  insert into public.floor_plan_layouts(date,positions,revision) values(day,jsonb_build_object(number,jsonb_build_object('x',round(x,2),'y',round(y,2))),1)
  on conflict(date) do update set positions=jsonb_set(public.floor_plan_layouts.positions,array[number],jsonb_build_object('x',round(x,2),'y',round(y,2))),revision=public.floor_plan_layouts.revision+1,updated=now()
  returning * into layout;

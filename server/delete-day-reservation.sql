@@ -8,9 +8,9 @@ begin
  perform pg_advisory_xact_lock(922002670);
  select * into booking from public.reservations where id=p->>'id' for update;
  if booking.id is null then raise exception 'Reservation nicht gefunden.';end if;
- if booking.date is distinct from (p->>'date')::date then raise exception 'Reservationsdatum wurde geändert. Bitte aktualisieren.' using errcode='40001';end if;
+ if booking.date is distinct from (p->>'date')::date then raise exception 'Reservationsdatum wurde geändert. Bitte aktualisieren.' using errcode='PT409';end if;
  if booking.deleted_at is not null then return jsonb_build_object('ok',true,'id',booking.id);end if;
- if booking.revision<>coalesce((p->>'revision')::integer,-1) then raise exception 'Reservation wurde zwischenzeitlich geändert. Bitte aktualisieren.' using errcode='40001';end if;
+ if booking.revision<>coalesce((p->>'revision')::integer,-1) then raise exception 'Reservation wurde zwischenzeitlich geändert. Bitte aktualisieren.' using errcode='PT409';end if;
  if exists(select 1 from public.mail_outbox where reservation_id=booking.id and state<>'sent') then raise exception 'Bestätigung ist für den Versand vorgemerkt. Zuerst den Versand abschliessen.';end if;
  update public.reservations set status='Storniert',deleted_at=now(),revision=revision+1,updated=now(),reason='In der Tagesübersicht gelöscht' where id=booking.id;
  update public.mail_inbox set state='ignored',updated=now() where reservation_id=booking.id;

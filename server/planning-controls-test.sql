@@ -17,12 +17,12 @@ begin
  perform public.save_reservation(jsonb_build_object('action','save','reservation',r));
  assert (select revision=1 and table_no='1, 2' and data::jsonb->'excel_source'->>'row'='12' from public.reservations where id='planning-test-edit'),'Existing capacity edit must save and retain origin';
  r:=r||'{"revision":1,"people":5,"gondola":false}'::jsonb;
- blocked:=false;begin perform public.save_reservation(jsonb_build_object('action','save','reservation',r));exception when serialization_failure then blocked:=true;end;
+ blocked:=false;begin perform public.save_reservation(jsonb_build_object('action','save','reservation',r));exception when sqlstate 'PT409' then blocked:=true;end;
  assert blocked,'Adding guests above 70 must still need explicit override';
  perform public.save_floor_position('{"date":"2099-02-01","number":"1","x":100,"y":200,"revision":0}');
  perform public.save_floor_position('{"date":"2099-02-01","number":"2","x":300,"y":400,"revision":1}');
  assert (select revision=2 and positions->'1'->>'x'='100.00' and positions ? '2' from public.floor_plan_layouts where date='2099-02-01'),'Two distinct moved tables must persist';
- blocked:=false;begin perform public.save_floor_position('{"date":"2099-02-01","number":"3","x":100,"y":200,"revision":1}');exception when serialization_failure then blocked:=true;end;
+ blocked:=false;begin perform public.save_floor_position('{"date":"2099-02-01","number":"3","x":100,"y":200,"revision":1}');exception when sqlstate 'PT409' then blocked:=true;end;
  assert blocked,'Stale layout must be rejected';
  blocked:=false;begin perform public.save_floor_position('{"date":"2099-02-01","number":"9999","x":100,"y":200,"revision":2}');exception when raise_exception then blocked:=true;end;
  assert blocked,'Unknown table must be rejected';

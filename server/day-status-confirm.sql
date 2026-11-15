@@ -6,9 +6,9 @@ begin
  perform pg_advisory_xact_lock(922002670);
  select * into booking from public.reservations where id=p->>'id' for update;
  if booking.id is null or booking.deleted_at is not null then raise exception 'Reservation nicht gefunden.';end if;
- if booking.date is distinct from (p->>'date')::date then raise exception 'Reservationsdatum wurde geändert. Bitte aktualisieren.' using errcode='40001';end if;
+ if booking.date is distinct from (p->>'date')::date then raise exception 'Reservationsdatum wurde geändert. Bitte aktualisieren.' using errcode='PT409';end if;
  if booking.status<>'Bestätigt' then
-  if booking.revision<>coalesce((p->>'revision')::integer,-1) then raise exception 'Reservation wurde zwischenzeitlich geändert. Bitte aktualisieren.' using errcode='40001';end if;
+  if booking.revision<>coalesce((p->>'revision')::integer,-1) then raise exception 'Reservation wurde zwischenzeitlich geändert. Bitte aktualisieren.' using errcode='PT409';end if;
   if booking.status<>'Offen' then raise exception 'Nur offene Reservationen können hier bestätigt werden. Rückfragen bitte über Bearbeiten klären.';end if;
   if exists(select 1 from public.mail_outbox where reservation_id=booking.id and state<>'sent') then raise exception 'Ein Bestätigungsversand ist bereits vorgemerkt. Bitte zuerst den Versand prüfen.';end if;
   if booking.gondola=1 and booking.people>4 then raise exception 'Maximal vier Personen je Fonduegondel.';end if;

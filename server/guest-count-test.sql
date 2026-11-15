@@ -13,7 +13,7 @@ begin
  result:=public.set_reservation_people('{"id":"guest-count-synthetic","revision":0,"people":3}');
  assert result->>'people'='3';
  assert (select people=3 and revision=1 and arrived and status='Bestätigt' and table_no='1' and data::jsonb->>'phone'='keep' and data::jsonb->'excel_source'->>'row'='12' and data::jsonb->>'people'='3' from public.reservations where id='guest-count-synthetic'),'Only guest count changes';
- blocked:=false;begin perform public.set_reservation_people('{"id":"guest-count-synthetic","revision":0,"people":8}');exception when serialization_failure then blocked:=true;end;
+ blocked:=false;begin perform public.set_reservation_people('{"id":"guest-count-synthetic","revision":0,"people":8}');exception when sqlstate 'PT409' then blocked:=true;end;
  assert blocked,'Stale revision rejected';
  blocked:=false;begin perform public.set_reservation_people('{"id":"guest-count-synthetic","revision":1,"people":2.5}');exception when raise_exception then blocked:=true;end;
  assert blocked,'Fraction rejected';

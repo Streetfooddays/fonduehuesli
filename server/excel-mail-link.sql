@@ -9,8 +9,8 @@ begin
  select * into r from public.reservations where id=p->>'reservation_id' for update;
  if m.id is null or r.id is null or r.deleted_at is not null or r.status='Storniert' then raise exception 'Anfrage oder aktive Reservation nicht gefunden.';end if;
  if m.reservation_id=r.id then return to_jsonb(r);end if;
- if m.reservation_id is not null or m.state in ('confirmed','ignored') then raise exception 'Die Anfrage wurde inzwischen bearbeitet. Bitte aktualisieren.' using errcode='40001';end if;
- if r.revision<>coalesce((p->>'revision')::integer,-1) then raise exception 'Reservation wurde inzwischen geändert. Bitte aktualisieren.' using errcode='40001';end if;
+ if m.reservation_id is not null or m.state in ('confirmed','ignored') then raise exception 'Die Anfrage wurde inzwischen bearbeitet. Bitte aktualisieren.' using errcode='PT409';end if;
+ if r.revision<>coalesce((p->>'revision')::integer,-1) then raise exception 'Reservation wurde inzwischen geändert. Bitte aktualisieren.' using errcode='PT409';end if;
  if exists(select 1 from public.mail_outbox where state<>'sent' and (mail_id=m.id or reservation_id=r.id)) then raise exception 'Ein Bestätigungsversand ist noch offen. Bitte zuerst den Versand prüfen.';end if;
  d:=m.draft->'data';
  if m.draft->>'date' is distinct from r.date::text or (m.draft->>'people')::integer is distinct from r.people or coalesce(m.draft->>'time','') is distinct from coalesce(r.time,'') then raise exception 'Datum, Uhrzeit oder Personenzahl stimmen nicht mit dem vorhandenen Eintrag überein.';end if;

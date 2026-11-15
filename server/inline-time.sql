@@ -10,7 +10,7 @@ begin
  perform pg_advisory_xact_lock(922002670);
  select * into booking from public.reservations where id=p->>'id' for update;
  if booking.id is null then raise exception 'Reservation nicht gefunden.';end if;
- if booking.revision<>coalesce((p->>'revision')::integer,-1) then raise exception 'Reservation wurde zwischenzeitlich geändert. Bitte aktualisieren.' using errcode='40001';end if;
+ if booking.revision<>coalesce((p->>'revision')::integer,-1) then raise exception 'Reservation wurde zwischenzeitlich geändert. Bitte aktualisieren.' using errcode='PT409';end if;
  if booking.status='Storniert' then raise exception 'Stornierte Reservation zuerst über Bearbeiten wieder aktivieren.';end if;
  if booking.time is distinct from value then
   update public.reservations set time=value,period=service,data=(data::jsonb||jsonb_build_object('time',value))::text,revision=revision+1,updated=now() where id=booking.id returning * into booking;

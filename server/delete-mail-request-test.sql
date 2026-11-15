@@ -10,9 +10,9 @@ begin
  blocked:=false;begin perform public.delete_mail_request('{"id":"test-delete-request-unlinked"}');exception when insufficient_privilege then blocked:=true;end;
  assert blocked,'Unauthenticated caller must be rejected';
  perform set_config('request.jwt.claims',jsonb_build_object('sub',uid,'role','authenticated')::text,true);
- blocked:=false;begin perform public.delete_mail_request('{"id":"test-delete-request-mail","revision":0}');exception when serialization_failure then blocked:=true;end;
+ blocked:=false;begin perform public.delete_mail_request('{"id":"test-delete-request-mail","revision":0}');exception when sqlstate 'PT409' then blocked:=true;end;
  assert blocked,'Changed association must be rejected';
- blocked:=false;begin perform public.delete_mail_request('{"id":"test-delete-request-mail","reservation_id":"test-delete-request-booking","revision":9}');exception when serialization_failure then blocked:=true;end;
+ blocked:=false;begin perform public.delete_mail_request('{"id":"test-delete-request-mail","reservation_id":"test-delete-request-booking","revision":9}');exception when sqlstate 'PT409' then blocked:=true;end;
  assert blocked,'Stale revision must be rejected';
  update public.reservations set status='Bestätigt' where id='test-delete-request-booking';
  blocked:=false;begin perform public.delete_mail_request('{"id":"test-delete-request-mail","reservation_id":"test-delete-request-booking","revision":0}');exception when raise_exception then blocked:=true;end;

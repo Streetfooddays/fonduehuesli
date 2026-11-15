@@ -25,7 +25,7 @@ begin
  perform pg_advisory_xact_lock(922002670);
  select * into booking from public.reservations where id=p->>'id' for update;
  if booking.id is null then raise exception 'Reservation nicht gefunden.';end if;
- if booking.revision<>coalesce((p->>'revision')::integer,-1) then raise exception 'Reservation wurde zwischenzeitlich geändert. Bitte aktualisieren.' using errcode='40001';end if;
+ if booking.revision<>coalesce((p->>'revision')::integer,-1) then raise exception 'Reservation wurde zwischenzeitlich geändert. Bitte aktualisieren.' using errcode='PT409';end if;
  flag:=case when cardinality(gondolas)=1 then 1 when cardinality(private.gondola_tables(booking.table_no))>0 then 0 else booking.gondola end;
  if flag=1 and booking.people>4 then raise exception 'Maximal vier Personen je Fonduegondel.';end if;
  if flag=1 and booking.gondola=0 and booking.status='Bestätigt' and (select count(*) from public.reservations where date=booking.date and id<>booking.id and gondola=1 and status='Bestätigt' and (period=booking.period or period='ungeklaert' or booking.period='ungeklaert'))>=3 then raise exception 'Alle drei Gondeln sind für diesen Mittag / Abend bereits reserviert.';end if;

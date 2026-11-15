@@ -8,7 +8,7 @@ begin
  perform pg_advisory_xact_lock(922002670);
  rid:=r->>'createId';
  select * into booking from public.reservations where id=rid for update;
- if booking.id is not null and (booking.source<>'Laufkundschaft / manuell' or booking.deleted_at is not null or booking.status<>'Bestätigt') then raise exception 'Eintrag bereits vorhanden. Bitte aktualisieren.' using errcode='40001';end if;
+ if booking.id is not null and (booking.source<>'Laufkundschaft / manuell' or booking.deleted_at is not null or booking.status<>'Bestätigt') then raise exception 'Eintrag bereits vorhanden. Bitte aktualisieren.' using errcode='PT409';end if;
  if coalesce(trim(r->'data'->>'last'),'')='' and coalesce(trim(r->'data'->>'first'),'')='' then r:=jsonb_set(r,'{data}',coalesce(r->'data','{}'::jsonb)||'{"last":"walk in"}'::jsonb);end if;
  r:=r||'{"status":"Bestätigt"}'::jsonb;
  result:=private.save_reservation(jsonb_build_object('action','save','reservation',r));

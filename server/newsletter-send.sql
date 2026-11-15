@@ -59,7 +59,7 @@ begin
  select coalesce(jsonb_agg(c),'[]') into cleaned from (select distinct on(lower(c->>'email')) jsonb_build_object('email',lower(c->>'email'),'source',coalesce(c->>'source',''),'approved',(c->>'approved')::boolean,'first_name',left(coalesce(c->>'first_name',''),200),'last_name',left(coalesce(c->>'last_name',''),200)) c from jsonb_array_elements(p->'contacts') c order by lower(c->>'email')) t;
  perform pg_advisory_xact_lock(922002673);
  select revision into current_revision from public.newsletter_workspace where id=true for update;
- if coalesce(current_revision,0)<>coalesce((p->>'revision')::integer,-1) then raise exception 'Der Newsletter wurde inzwischen geändert. Bitte neu laden.' using errcode='40001';end if;
+ if coalesce(current_revision,0)<>coalesce((p->>'revision')::integer,-1) then raise exception 'Der Newsletter wurde inzwischen geändert. Bitte neu laden.' using errcode='PT409';end if;
  insert into public.newsletter_workspace(id,draft,contacts,revision) values(true,p->'draft',cleaned,1) on conflict(id) do update set draft=excluded.draft,contacts=excluded.contacts,revision=public.newsletter_workspace.revision+1,updated=now() returning revision into current_revision;
  return jsonb_build_object('revision',current_revision);
 end $fn$;

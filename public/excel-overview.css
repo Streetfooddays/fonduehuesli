@@ -3,3 +3,6 @@
 [data-sheet-section]>.sheet-horizontal-rail{position:sticky;top:var(--sheet-day-heading-height,50px);z-index:12;height:19px;overflow-x:scroll;overflow-y:hidden;background:#eee5d7;border-top:1px solid #c7b89f;scrollbar-color:#9b7954 #eee5d7;scrollbar-width:auto}[data-sheet-section]>.sheet-horizontal-rail>div{height:1px}[data-sheet-section]>.sheet-horizontal-rail::-webkit-scrollbar{height:16px}[data-sheet-section]>.sheet-horizontal-rail::-webkit-scrollbar-track{background:#eee5d7}[data-sheet-section]>.sheet-horizontal-rail::-webkit-scrollbar-thumb{background:#9b7954;border-radius:8px;border:3px solid #eee5d7}[data-sheet-section]>.table-scroll{scrollbar-width:none}[data-sheet-section]>.table-scroll::-webkit-scrollbar{height:0}@media print{.sheet-horizontal-rail{display:none!important}}
 
 [data-sheet-section]>.sheet-day-heading{position:sticky;top:0;z-index:13;flex-wrap:wrap}.sheet-delete{color:#a12020!important;padding:.3rem!important}.sheet-save-cell>[data-sheet-save]{margin-right:.15rem}
+
+.excel-table th{white-space:normal;overflow-wrap:anywhere}
+.excel-table td{overflow-wrap:anywhere}

@@ -22,13 +22,14 @@ function rowHTML(r,day,locked=false){
 }
 export function markCurrentRequest(root,id){root.querySelectorAll('[data-sheet-id]').forEach(tr=>{const active=tr.dataset.sheetId===id;tr.classList.toggle('sheet-current-request',active);if(active)tr.setAttribute('aria-current','true');else tr.removeAttribute('aria-current');});}
 export function renderExcelOverview(root,{rows,outbox=[],date,save,onSaved,onDate,notice,onSelectRow=()=>{},onReservationChanged=()=>{},onRequestEdit=()=>{}}){
- let selected=date,selectedRowId=null,currentRequestId=null,requestPreview=null;
- const dirty=()=>!!root.querySelector('[data-dirty="true"]');
+ let selected=date,selectedRowId=null,currentRequestId=null,requestPreview=null,railObservers=[];const saveJobs=new WeakMap();
+ const dirty=()=>!!root.querySelector('[data-dirty="true"],[data-saving="true"]');
  const draw=()=>{
   const days=weekDays(selected),scrolls=new Map([...root.querySelectorAll('[data-sheet-section]')].map(s=>[s.dataset.sheetSection,s.querySelector('.table-scroll')?.scrollLeft||0]));
   root.classList.remove('day-compact');
-  root.innerHTML=`<section class="excel-overview"><div class="toolbar filters"><button type="button" class="secondary" data-sheet-week="-7" aria-label="Vorherige Woche">← Woche</button><label>Woche auswählen<input type="date" id="sheet-date" value="${e(selected)}" required></label><button type="button" class="secondary" data-sheet-week="7">Woche →</button><button type="button" class="secondary" id="sheet-print">Drucken</button></div><h2>Excel-Übersicht</h2><p class="muted">${dayLabel(days[0])} – ${dayLabel(days[6])}</p><p>Wie in eurer Excel-Liste: direkt in die Zeile schreiben und «Speichern» oder «Eintragen» wählen. Jeder Tag hat eine leere Zeile für neue Reservationen. Die Daten gehören zum gemeinsamen Reservationsbuch.</p><div class="sheet-days">${days.map(day=>`<section class="sheet-day" data-sheet-section="${e(day)}"><div class="sheet-day-heading"><h3>${e(dayLabel(day))}</h3><strong data-sheet-total="${day}"></strong></div><div class="table-scroll"><table class="excel-table"><thead><tr>${cols.map(([,label])=>`<th>${label}</th>`).join('')}<th>Status</th><th>Speichern</th></tr></thead><tbody>${dayRowsHTML(day)}</tbody></table></div></section>`).join('')}</div></section>`;
+  root.innerHTML=`<section class="excel-overview"><div class="toolbar filters"><button type="button" class="secondary" data-sheet-week="-7" aria-label="Vorherige Woche">← Woche</button><label>Woche auswählen<input type="date" id="sheet-date" value="${e(selected)}" required></label><button type="button" class="secondary" data-sheet-week="7">Woche →</button><button type="button" class="secondary" id="sheet-print">Drucken</button></div><h2>Excel-Übersicht</h2><p class="muted">${dayLabel(days[0])} – ${dayLabel(days[6])}</p><p>Wie in eurer Excel-Liste: direkt in die Zeile schreiben. Tab oder Enter speichert automatisch; alternativ «Speichern» oder «Eintragen» wählen. Jeder Tag hat eine leere Zeile für neue Reservationen. Die Daten gehören zum gemeinsamen Reservationsbuch.</p><div class="sheet-days">${days.map(day=>`<section class="sheet-day" data-sheet-section="${e(day)}"><div class="sheet-day-heading"><h3>${e(dayLabel(day))}</h3><strong data-sheet-total="${day}"></strong></div><div class="table-scroll"><table class="excel-table"><thead><tr>${cols.map(([,label])=>`<th>${label}</th>`).join('')}<th>Status</th><th>Speichern</th></tr></thead><tbody>${dayRowsHTML(day)}</tbody></table></div><div class="sheet-horizontal-rail" tabindex="0" role="region" aria-label="Tagesliste ${e(dayLabel(day))} waagrecht verschieben"><div></div></div></section>`).join('')}</div></section>`;
   updateTotals();bindRows();paintRequestPreview();paintCurrentRequest();root.querySelectorAll('[data-sheet-section]').forEach(s=>{s.querySelector('.table-scroll').scrollLeft=scrolls.get(s.dataset.sheetSection)||0;});if(selectedRowId){[...root.querySelectorAll('[data-sheet-id]')].find(tr=>tr.dataset.sheetId===selectedRowId)?.classList.add('sheet-selected');}
+  bindHorizontalRails();
   root.querySelectorAll('[data-sheet-week]').forEach(b=>b.onclick=()=>{if(dirty()&&!window.confirm('Ungespeicherte Änderungen verwerfen und die Woche wechseln?'))return;const d=new Date(selected+'T12:00:00Z');d.setUTCDate(d.getUTCDate()+Number(b.dataset.sheetWeek));selected=d.toISOString().slice(0,10);onDate(selected);draw();});
   root.querySelector('#sheet-date').onchange=ev=>{if(!ev.target.value)return;if(dirty()&&!window.confirm('Ungespeicherte Änderungen verwerfen und die Woche wechseln?')){ev.target.value=selected;return;}selected=ev.target.value;onDate(selected);draw();};
   root.querySelector('#sheet-print').onclick=()=>window.print();
@@ -40,7 +41,7 @@ export function renderExcelOverview(root,{rows,outbox=[],date,save,onSaved,onDat
  }
  function placeCancelledLast(body){
   const rank=tr=>tr.dataset.sheetNew==='true'?1:reservationRank(rows.find(r=>r.id===tr.dataset.sheetId)||{})*2;
-  [...body.children].sort((a,b)=>rank(a)-rank(b)||(rank(a)===2?cancellationsLast(rows.find(r=>r.id===a.dataset.sheetId),rows.find(r=>r.id===b.dataset.sheetId)):0)).forEach(tr=>body.append(tr));
+  [...body.children].sort((a,b)=>rank(a)-rank(b)||(rank(a)===2?cancellationsLast(rows.find(r=>r.id===a.dataset.sheetId),rows.find(r=>r.id===b.dataset.sheetId)):0)).forEach((tr,i)=>{if(body.children[i]!==tr)body.insertBefore(tr,body.children[i]||null);});
  }
  function updateTotals(){root.querySelectorAll('[data-sheet-total]').forEach(el=>{const t=sheetTotals(rows,el.dataset.sheetTotal);el.textContent=`${t.reservations} Reservationen · ${t.people} Personen`;});}
  function rowContext(tr){const values=Object.fromEntries([...tr.querySelectorAll('[name]')].map(c=>[c.name,c.type==='checkbox'?c.checked:c.value]));return {rowId:tr.dataset.sheetId,day:tr.dataset.sheetDay,isNew:tr.dataset.sheetNew==='true',booking:rows.find(r=>r.id===tr.dataset.sheetId)||null,values};}
@@ -55,28 +56,51 @@ export function renderExcelOverview(root,{rows,outbox=[],date,save,onSaved,onDat
  }
  function paintCurrentRequest(){markCurrentRequest(root,currentRequestId);}
  function selectRow(tr){selectedRowId=tr.dataset.sheetId;root.querySelectorAll('.sheet-selected').forEach(r=>r.classList.remove('sheet-selected'));tr.classList.add('sheet-selected');onSelectRow(rowContext(tr));}
+ function bindHorizontalRails(){
+  railObservers.forEach(o=>o.disconnect());railObservers=[];
+  root.querySelectorAll('[data-sheet-section]').forEach(day=>{
+   const pane=day.querySelector('.table-scroll'),rail=day.querySelector('.sheet-horizontal-rail');if(!rail)return;
+   const size=()=>{rail.firstElementChild.style.width=Math.max(pane.scrollWidth||0,pane.querySelector('table').scrollWidth||0,pane.clientWidth||0)+'px';rail.scrollLeft=pane.scrollLeft||0;};
+   rail.onscroll=()=>{if(pane.scrollLeft!==rail.scrollLeft)pane.scrollLeft=rail.scrollLeft;};pane.onscroll=()=>{if(rail.scrollLeft!==pane.scrollLeft)rail.scrollLeft=pane.scrollLeft;};size();
+   if(typeof ResizeObserver!=='undefined'){const observer=new ResizeObserver(size);observer.observe(pane);observer.observe(pane.querySelector('table'));railObservers.push(observer);}
+  });
+ }
+ function valuesOf(tr){return {...rowContext(tr).values,date:tr.dataset.sheetDay};}
+ function dirtyAgainst(tr,saved){const d=guest(saved),actual={...d,time:saved.time||'',people:String(saved.people),tableNo:saved.table_no||'',status:saved.status};return [...cols.map(([key])=>key),'status'].some(key=>String(tr.querySelector(`[name="${key}"]`).value||'').trim()!==String(actual[key]||'').trim());}
+ async function saveRow(tr,automatic=false){
+  let job=saveJobs.get(tr);if(job?.running){job.again=true;return job.promise;}
+  if(automatic&&tr.dataset.dirty!=='true')return;
+  job={running:true,again:false};saveJobs.set(tr,job);
+  job.promise=(async()=>{
+   do{
+    job.again=false;if(automatic&&tr.dataset.dirty!=='true')break;
+    const feedback=tr.querySelector('.sheet-feedback'),button=tr.querySelector('[data-sheet-save]'),r=tr.dataset.sheetNew==='false'?rows.find(r=>r.id===tr.dataset.sheetId):null,values=valuesOf(tr);
+    try{
+     const payload=sheetPayload(r,values,tr.dataset.sheetId);
+     const invalid=[...tr.querySelectorAll('input,textarea,select')].find(c=>typeof c.checkValidity==='function'&&!c.checkValidity());
+     if(invalid){if(!automatic)invalid.reportValidity();feedback.textContent='Bitte die Eingaben prüfen.';break;}
+     button.disabled=true;tr.dataset.saving='true';feedback.textContent='Wird gespeichert …';
+     await save(payload);const saved=await onSaved(payload,tr.dataset.sheetId);if(!saved)throw Error('Gespeichert. Bitte die Übersicht über «Aktualisieren» neu laden.');
+     const i=rows.findIndex(x=>x.id===saved.id);if(i>=0)rows[i]=saved;else rows.push(saved);
+     const data=guest(saved),stored={...data,time:saved.time||'',people:String(saved.people),tableNo:saved.table_no||'',status:saved.status};
+     for(const key of [...cols.map(([key])=>key),'status']){const input=tr.querySelector(`[name="${key}"]`);if(String(input.value||'')===String(values[key]||''))input.value=stored[key]??'';}
+     tr.dataset.sheetId=saved.id;tr.dataset.sheetNew='false';tr.classList.toggle('sheet-cancelled',saved.status==='Storniert');tr.classList.toggle('sheet-waitlist',saved.status==='Warteliste');button.textContent='Speichern';
+     if(!r){tr.parentElement.insertAdjacentHTML('beforeend',rowHTML(null,saved.date));bindRows();}
+     if(dirtyAgainst(tr,saved)){tr.dataset.dirty='true';feedback.textContent='Weitere Änderungen noch nicht gespeichert';}else{delete tr.dataset.dirty;feedback.textContent='Gespeichert';tr.querySelector('.sheet-override').hidden=true;feedback.setAttribute('role','status');}
+     const focused=root.contains(document.activeElement)?document.activeElement:null;placeCancelledLast(tr.parentElement);if(focused&&document.activeElement!==focused)focused.focus?.({preventScroll:true});
+     updateTotals();paintCurrentRequest();onSelectRow(rowContext(tr));onReservationChanged(saved);if(!automatic)notice('Reservation gespeichert.');
+    }catch(err){feedback.textContent=err.message;feedback.setAttribute('role','alert');if(r||!automatic||tr.dataset.saving==='true')tr.querySelector('.sheet-override').hidden=false;job.again=false;break;}
+    finally{button.disabled=false;delete tr.dataset.saving;}
+   }while(job.again);
+  })().finally(()=>{job.running=false;});return job.promise;
+ }
  function bindRows(){root.querySelectorAll('tr[data-sheet-id]:not([data-sheet-preview])').forEach(tr=>{
   tr.onclick=()=>selectRow(tr);tr.onfocusin=()=>selectRow(tr);
   tr.oninput=()=>{tr.dataset.dirty='true';tr.querySelector('.sheet-feedback').textContent='Noch nicht gespeichert';selectRow(tr);};
-  const button=tr.querySelector('[data-sheet-save]');button.onclick=async()=>{
-   const feedback=tr.querySelector('.sheet-feedback');
-   if([...tr.querySelectorAll('input,textarea,select')].some(c=>!c.reportValidity()))return;
-   const r=tr.dataset.sheetNew==='false'?rows.find(r=>r.id===tr.dataset.sheetId):null;
-   const values=Object.fromEntries([...tr.querySelectorAll('[name]')].map(c=>[c.name,c.type==='checkbox'?c.checked:c.value]));values.date=tr.dataset.sheetDay;
-   try{
-    const payload=sheetPayload(r,values,tr.dataset.sheetId);button.disabled=true;feedback.textContent='Wird gespeichert …';
-    tr.querySelectorAll('input,textarea,select').forEach(c=>c.disabled=true);
-    await save(payload);
-    const saved=await onSaved(payload,tr.dataset.sheetId);
-    if(!saved)throw Error('Gespeichert. Bitte die Übersicht über «Aktualisieren» neu laden.');
-    const rowIndex=rows.findIndex(x=>x.id===saved.id);if(rowIndex>=0)rows[rowIndex]=saved;else rows.push(saved);
-    const holder=document.createElement('tbody');holder.innerHTML=rowHTML(saved,values.date);const replacement=holder.firstElementChild;tr.replaceWith(replacement);
-    if(!r){const body=replacement.parentElement;body.insertAdjacentHTML('beforeend',rowHTML(null,values.date));}
-    placeCancelledLast(replacement.parentElement);updateTotals();bindRows();replacement.querySelector('.sheet-feedback').textContent='Gespeichert';selectRow(replacement);paintCurrentRequest();onReservationChanged(saved);notice('Reservation gespeichert.');
-   }catch(err){feedback.textContent=err.message;feedback.setAttribute('role','alert');tr.querySelector('.sheet-override').hidden=false;}
-   finally{button.disabled=false;tr.querySelectorAll('input,textarea,select').forEach(c=>c.disabled=false);}
-  };
+  tr.onkeydown=ev=>{if(!ev.target?.matches('input,textarea,select')||ev.target.disabled||ev.isComposing)return;if(ev.key==='Tab'||ev.key==='Enter'&&!ev.shiftKey){if(ev.key==='Enter')ev.preventDefault();void saveRow(tr,true);}};
+  tr.querySelector('[data-sheet-save]').onclick=()=>saveRow(tr,false);
  });}
+
  const beforeUnload=ev=>{if(dirty()){ev.preventDefault();ev.returnValue='';}};window.addEventListener('beforeunload',beforeUnload);
  draw();
  return {canLeave:()=>!dirty()||window.confirm('Ungespeicherte Änderungen in der Excel-Übersicht verwerfen?'),isDirty:dirty,
@@ -86,5 +110,5 @@ export function renderExcelOverview(root,{rows,outbox=[],date,save,onSaved,onDat
   setCurrentRequest(id,{scroll=false}={}){currentRequestId=id||null;const r=rows.find(r=>r.id===id)||(requestPreview&&id==='request-preview-'+requestPreview.id?{date:requestPreview.draft?.date}:null);if(r?.date&&scroll)this.navigate(r.date);paintCurrentRequest();const tr=[...root.querySelectorAll('[data-sheet-id]')].find(tr=>tr.dataset.sheetId===id);if(tr&&scroll)tr.scrollIntoView({block:'center',behavior:'smooth'});return !!tr;},
   focusReservation(id){const r=rows.find(r=>r.id===id);if(!r||!this.navigate(r.date))return false;const tr=[...root.querySelectorAll('[data-sheet-id]')].find(tr=>tr.dataset.sheetId===id);if(tr){selectRow(tr);tr.scrollIntoView({block:'center',behavior:'smooth'});return true;}return false;},
   applyTable(id,value,saved=null){const tr=[...root.querySelectorAll('[data-sheet-id]')].find(tr=>tr.dataset.sheetId===id);if(saved){const i=rows.findIndex(r=>r.id===id);if(i>=0)rows[i]=saved;}if(tr){tr.querySelector('[name=tableNo]').value=value;if(!saved){tr.dataset.dirty='true';tr.querySelector('.sheet-feedback').textContent='Tischwahl noch nicht gespeichert';}selectRow(tr);}updateTotals();},
-  dispose:()=>window.removeEventListener('beforeunload',beforeUnload)};
+  dispose:()=>{railObservers.forEach(o=>o.disconnect());window.removeEventListener('beforeunload',beforeUnload);}};
 }

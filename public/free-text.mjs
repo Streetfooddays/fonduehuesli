@@ -43,3 +43,17 @@ export function freeTextReservation(text,options={}){
  if(draft.date||draft.time||draft.people||name)issues.push('Freie E-Mail: erkannte Angaben vor der Bestätigung prüfen.');
  return {draft,issues};
 }
+
+export function mailThreadMessages(text,options={}){
+ const parts=[];let lines=[],sender=options.sender||'',subject=options.subject||'',headers=false,depth=0;
+ const flush=()=>{const body=lines.join('\n').trim();if(body)parts.push({body,sender,subject});lines=[];};
+ for(const raw of String(text||'').replace(/\r/g,'').split('\n')){
+  const level=(raw.match(/^\s*(?:>\s*)+/)?.[0].match(/>/g)||[]).length,line=raw.replace(/^\s*(?:>\s*)+/,'');
+  if(/^(?:\s*[-_—]{2,}\s*(?:Original|Ursprüngliche|Weitergeleitete|Forwarded)|\s*Am .{5,}schrieb.{0,100}:|\s*On .{5,}wrote:)/i.test(line)){flush();sender='';subject='';headers=true;depth=level;continue;}
+  if(level!==depth&&lines.some(s=>s.trim())){flush();sender='';subject='';}depth=level;
+  const from=line.match(/^\s*(?:Von|From):\s*(.+)$/i);if(from){flush();sender=from[1].trim();subject='';headers=true;continue;}
+  if(headers&&/^\s*(?:An|To|Cc|Bcc|Gesendet|Sent|Date|Datum|Betreff|Subject):/i.test(line)){const m=line.match(/^\s*(?:Betreff|Subject):\s*(.+)$/i);if(m)subject=m[1].trim();continue;}
+  if(!line.trim())headers=false;lines.push(line);
+ }
+ flush();return parts.length?parts:[{body:String(text||''),sender:options.sender||'',subject:options.subject||''}];
+}

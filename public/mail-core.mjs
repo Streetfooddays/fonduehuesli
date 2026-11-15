@@ -1,11 +1,11 @@
-import {freeTextReservation} from './free-text.mjs';
+import {freeTextReservation,mailThreadMessages} from './free-text.mjs';
 import {parseReservationDate,splitReservationName} from './reservation-fields.mjs';
 const names={date:['datum','reservationsdatum','reservationswunsch','wunschdatum','reservierungsdatum','gewünschtes datum','gewuenschtes datum','reservation am','reservierung am','reservation für','reservierung für'],time:['zeit','uhrzeit','ankunftszeit'],people:['personen','anzahl personen','personenzahl','anzahl gäste','anzahl gaeste','anzahl pers.','anzahl pers','anzahl personen.'],last:['nachname','name','name/vorname','name / vorname','vorname/nachname','vorname / nachname','nachname/vorname','nachname / vorname','vorname und nachname','name und vorname','vollständiger name','vollstaendiger name','familienname','nachname, vorname','name, vorname','voller name'],first:['vorname','vorname(n)','first name'],email:['e-mail','email','e-mail-adresse','mailadresse'],phone:['telefon','telefonnummer','mobile'],street:['strasse','straße','strasse/nr','strasse/nr.','strasse / nr','straße/nr'],zip:['plz','postleitzahl'],city:['ort','wohnort'],company:['firma','unternehmen'],comment:['kommentar','bemerkungen','nachricht','mitteilung','wünsche','wuensche'],gondola:['fonduegondel','gondel']};
 export function htmlText(html=''){
  if(html.startsWith('data:text/html;base64,'))try{html=new TextDecoder().decode(Uint8Array.from(atob(html.slice(22)),c=>c.charCodeAt(0)));}catch{return '';}
  return html.replace(/<(script|style)\b[^>]*>[\s\S]*?<\/\1>/gi,'').replace(/<\/(?:td|th)>\s*<(?:td|th)\b[^>]*>/gi,': ').replace(/<(?:br|\/p|\/div|\/tr|\/li)\b[^>]*>/gi,'\n').replace(/<[^>]*>/g,'').replace(/&#(x[0-9a-f]+|\d+);/gi,(_,n)=>{const code=n[0].toLowerCase()==='x'?parseInt(n.slice(1),16):Number(n);return code>0&&code<=0x10ffff?String.fromCodePoint(code):'';}).replace(/&(amp|lt|gt|quot|apos|nbsp);/g,(_,k)=>({amp:'&',lt:'<',gt:'>',quot:'"',apos:"'",nbsp:' '}[k]));
 }
-export function parseMail(text,options={}){
+function parseSingleMail(text,options={}){
  const found={},issues=[],dateValues=[],combinedNames=[];const lines=String(text||'').replace(/\r/g,'').split('\n').map(s=>s.replace(/^\s*>\s?/,'').trim()).filter(Boolean);
  for(let i=0;i<lines.length;i++){
   const line=lines[i],match=line.match(/^([^:]{2,40}):\s*(.*)$/);let label=match?match[1].trim().toLowerCase():line.toLowerCase(),value=match?match[2].trim():'';
@@ -38,6 +38,24 @@ export function parseMail(text,options={}){
  if(found.gondola&&!/^(nein|no|false|0)$/i.test(found.gondola)){data.gondola='Ja';issues.push('Gondelwunsch bitte manuell zuordnen.');}
  if(/\b(stornier\w*|absage|änderung|aenderung|verschieb\w*|annullier\w*)\b/i.test(text))issues.push('Mögliche Änderung oder Stornierung: manuell prüfen.');
  return {draft:{date,time,people,data},issues,complete:issues.length===0};
+}
+export function parseMail(text,options={}){
+ const messages=mailThreadMessages(text,options);if(messages.length===1)return parseSingleMail(messages[0].body,{...options,sender:messages[0].sender||options.sender,subject:messages[0].subject});
+ const parsed=messages.map(m=>parseSingleMail(m.body,{...options,sender:m.sender||options.sender,subject:m.subject}));
+ const ready=p=>p.draft.date&&p.draft.people&&(p.draft.data.first||p.draft.data.last);
+ let index=parsed.findIndex(ready);
+ if(index<0){const score=p=>Number(!!p.draft.date)*3+Number(!!p.draft.people)*3+Number(!!p.draft.time)+Number(!!(p.draft.data.first||p.draft.data.last))*2;index=parsed.reduce((best,p,i)=>score(p)>score(parsed[best])?i:best,0);}
+ const source=parsed[index],draft={...source.draft,data:{...source.draft.data}},issues=[...source.issues,'Mailverlauf: erkannte Reservationsangaben vor der Bestätigung prüfen.'];
+ for(let i=index-1;i>=0;i--){
+  if(!/reserv|personen|pers\b|gäste|gaeste|kommen|ankunft|statt|verschieb|\bum\s+\d|\bam\s+\d/i.test(messages[i].body))continue;
+  const p=parsed[i];if(p.issues.some(s=>/Mehrere Angaben|Mehrere Datumsangaben|Ungültige Datumsangabe/.test(s))){issues.push(...p.issues.filter(s=>!/fehlt|Name fehlt/.test(s)));continue;}
+  for(const key of ['date','time','people'])if(p.draft[key]){if(draft[key]&&draft[key]!==p.draft[key])issues.push('Änderung im Mailverlauf: neuere Angabe für '+({date:'Datum',time:'Uhrzeit',people:'Personenzahl'}[key])+'. Bitte prüfen.');draft[key]=p.draft[key];}
+  if(/Nachname|Vorname|(?:auf|unter) den? Namen|mein Name|ich heisse|ich heiße/i.test(messages[i].body))for(const key of ['first','last'])if(p.draft.data[key])draft.data[key]=p.draft.data[key];
+ }
+ if(new Set(parsed.filter(ready).map(p=>JSON.stringify([p.draft.date,p.draft.time,p.draft.people]))).size>1)issues.push('Mehrere Angaben im Mailverlauf: unterschiedliche Reservationen oder Änderungen. Bitte prüfen.');
+ const all=[...new Set(issues)].filter(s=>!(/Datum fehlt/.test(s)&&draft.date||/Uhrzeit fehlt/.test(s)&&draft.time||/Personenzahl fehlt/.test(s)&&draft.people||/Name fehlt/.test(s)&&(draft.data.first||draft.data.last)));
+ if(/\b(stornier\w*|absage|änderung|aenderung|verschieb\w*|annullier\w*)\b/i.test(messages[0].body))all.push('Mögliche Änderung oder Stornierung: manuell prüfen.');
+ return {draft,issues:[...new Set(all)],complete:false};
 }
 export async function verifySignature(payload,headers,secret,now=Date.now()/1000){
  const id=headers.get('svix-id'),ts=headers.get('svix-timestamp'),sig=headers.get('svix-signature');

@@ -22,12 +22,12 @@ test('free text recognizes dates, times, guest count and signature or booking na
   const p=parseMail(text,options);assert.deepEqual([p.draft.date,p.draft.time,p.draft.people,p.draft.data.first,p.draft.data.last],[day,time,people,first,last]);assert.equal(p.complete,false);assert(p.issues.some(i=>i.includes('Freie E-Mail')));
  }
 });
-test('free text does not guess conflicting dates or times, invalid hours, or a quoted old reservation',()=>{
+test('free text leaves conflicts and invalid hours unresolved and flags quoted history for review',()=>{
  const options={receivedAt:'2026-11-15T10:00Z',sender:'Anna Muster <anna@example.invalid>'};
  assert.equal(parseMail('Reservieren am 12. oder 13. Dezember für 4 Personen um 19 Uhr.',options).draft.date,'');
  assert.equal(parseMail('Reservieren am 12.12.2026 für 4 Personen um 18 oder um 19 Uhr.',options).draft.time,'');
  assert.equal(parseMail('Reservieren am 12.12.2026 für 4 Personen um 25 Uhr.',options).draft.time,'');
- const p=parseMail('Vielen Dank!\n\nAm 01.11.2026 schrieb Fonduehüsli:\nReservation am 12.12.2026 um 19 Uhr für 6 Personen.\nGruss Anna Muster',options);assert.equal(p.draft.date,'');assert.equal(p.draft.people,null);
+ const p=parseMail('Vielen Dank!\n\nAm 01.11.2026 schrieb Fonduehüsli:\nReservation am 12.12.2026 um 19 Uhr für 6 Personen.\nGruss Anna Muster',options);assert.equal(p.draft.date,'2026-12-12');assert.equal(p.draft.people,6);assert(p.issues.some(i=>i.includes('Mailverlauf')));
 });
 
 test('free text can use the subject and leaves partial adult/child counts for manual review',()=>{
@@ -40,4 +40,10 @@ test('browser and webhook use the same recognition implementation',()=>{for(cons
 test('a standalone clock and a plain signature line are recognized without inventing names from polite closing text',()=>{
  const p=parseMail('Gerne möchten wir am 12.12.2026 für 4 Personen reservieren.\n18:30\nVielen Dank\nAnna Muster');assert.deepEqual([p.draft.date,p.draft.time,p.draft.people,p.draft.data.first,p.draft.data.last],['2026-12-12','18:30',4,'Anna','Muster']);
  assert.equal(parseMail('Wir reservieren am 12.12.2026 für 4 Personen um 19 Uhr.\nVielen Dank').draft.data.first,'');
+});
+
+test('whole-thread recognition finds an older form behind a short reply and applies clear newer changes',()=>{
+ const original='Von: Anna Muster <anna@example.invalid>\nGesendet: Montag, 2. November 2026\nBetreff: Reservation\n\nNachname: Muster\nVorname: Anna\nDatum: 12.12.2026\nUhrzeit: 18:30\nAnzahl Personen: 6\nE-Mail: anna@example.invalid';
+ const p=parseMail('Vielen Dank, passt!\n\n-----Original Message-----\n'+original,{receivedAt:'2026-11-15',sender:'Team <team@example.invalid>'});assert.deepEqual([p.draft.date,p.draft.time,p.draft.people,p.draft.data.first,p.draft.data.last,p.draft.data.email],['2026-12-12','18:30',6,'Anna','Muster','anna@example.invalid']);assert.equal(p.complete,false);
+ const changed=parseMail('Wir kommen nun mit 8 Personen und um 19 Uhr.\n\nAm 02.11.2026 schrieb Anna:\n'+original.split('\n').map(s=>'> '+s).join('\n'),{receivedAt:'2026-11-15'});assert.deepEqual([changed.draft.date,changed.draft.time,changed.draft.people,changed.draft.data.first],['2026-12-12','19:00',8,'Anna']);assert(changed.issues.some(i=>i.includes('Änderung im Mailverlauf')));assert.equal(reservationCandidate(changed),false);
 });

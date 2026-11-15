@@ -1,7 +1,7 @@
 import {test} from 'node:test';import assert from 'node:assert/strict';import {parseHTML} from 'linkedom';
 import {authInputs} from './public/auth-inputs.mjs';
 let serial=0;
-async function setup(t,{blockToken=null,failData=false,hash=''}={}){
+async function setup(t,{blockToken=null,failData=false,claimFailure=null,hash=''}={}){
  const old={fetch:globalThis.fetch,FormData:globalThis.FormData};const {window,document}=parseHTML('<html><body><div id="notice"></div><div id="app"></div><dialog id="editor"></dialog></body></html>');
  Object.assign(globalThis,{window,document,location:{origin:'https://fonduehuesli-reservationen.onrender.com',pathname:'/',hash},history:{replaceState(){}},CSS:{escape:s=>s}});
  const storage=new Map();globalThis.sessionStorage={getItem:k=>storage.get(k)||null,setItem:(k,v)=>storage.set(k,v),removeItem:k=>storage.delete(k)};
@@ -12,6 +12,7 @@ async function setup(t,{blockToken=null,failData=false,hash=''}={}){
   const path=new URL(url).pathname;calls.push({path,body:opts.body?JSON.parse(opts.body):null});
   if(path==='/auth/v1/token'){if(blockToken)await blockToken;return Response.json({access_token:'synthetic-access',refresh_token:'synthetic-refresh',expires_in:3600});}
   if(path==='/auth/v1/user')return Response.json({id:'synthetic-member',email_confirmed_at:'yes'});
+  if(path==='/rest/v1/rpc/claim_member'&&claimFailure){if(claimFailure==='timeout'){const error=Error('synthetic timeout');error.code='NETWORK_TIMEOUT';throw error;}return Response.json({message:'Zugang nicht freigeschaltet'},{status:403});}
   if(path==='/rest/v1/rpc/claim_member')return Response.json({name:'Synthetic',owner:true,email:'test@example.invalid'});
   if(path==='/rest/v1/mail_replies'&&dataFailure)return Response.json({error:'Antwortverlauf momentan nicht erreichbar.'},{status:503});
   if(path.startsWith('/rest/v1/'))return Response.json([]);throw Error('Unexpected test request');
@@ -19,7 +20,7 @@ async function setup(t,{blockToken=null,failData=false,hash=''}={}){
  t.after(()=>{globalThis.fetch=old.fetch;globalThis.FormData=old.FormData;for(const key of ['window','document','location','history','CSS','sessionStorage'])delete globalThis[key];});
  await import('./public/app.mjs?auth-test='+serial++);
  const login=async(email='test@example.invalid',password='synthetic-password')=>{const form=document.querySelector('#auth');form.querySelector('[name=email]').value=email;form.querySelector('[name=password]').value=password;return form.onsubmit({target:form,preventDefault(){}});};
- return {document,calls,storage,login,recoverData(){dataFailure=false;}};
+ return {document,calls,storage,login,recoverData(){dataFailure=false;},recoverClaim(){claimFailure=null;}};
 }
 test('login submits existing shorter credentials and trims email without changing the password',async t=>{
  const app=await setup(t);const form=app.document.querySelector('#auth');assert(form.hasAttribute('novalidate'));assert.equal(form.querySelector('[name=password]').getAttribute('minlength'),null);
@@ -42,4 +43,12 @@ test('new-password and recovery rules still require ten characters and matching 
   assert.throws(()=>authInputs(mode,form({email:'test@example.invalid',password:'long-enough-password',repeat:'different'})),/stimmen nicht/);
   assert.equal(authInputs(mode,form({email:'test@example.invalid',password:'long-enough-password',repeat:'long-enough-password'})).password,'long-enough-password');
  }
+});
+
+test('a connection interruption during team verification preserves the token and resumes without another password grant',async t=>{
+ const app=await setup(t,{claimFailure:'timeout'});await app.login();assert(app.storage.has('fh-session'));assert(app.document.querySelector('#retry-workspace'));assert(app.document.body.textContent.includes('Anmeldung wird fortgesetzt'));assert.equal(app.document.querySelector('[data-view=day]'),null);
+ app.recoverClaim();await app.document.querySelector('#retry-workspace').onclick();assert(app.document.querySelector('[data-view=day]'));assert.equal(app.calls.filter(c=>c.path==='/auth/v1/token').length,1);assert.equal(app.calls.filter(c=>c.path==='/auth/v1/user').length,0);
+});
+test('a team access denial clears the session and never opens the reservations',async t=>{
+ const app=await setup(t,{claimFailure:'forbidden'});await app.login();assert.equal(app.storage.has('fh-session'),false);assert(app.document.querySelector('#auth'));assert.equal(app.document.querySelector('[data-view=day]'),null);assert.equal(app.calls.some(c=>c.path==='/rest/v1/reservations'),false);
 });

@@ -43,3 +43,12 @@ test('reservation form saves changed details, recovers after a failed save, and 
  fail=true;closed=false;ctx.edit(booking);await form.onsubmit({preventDefault:()=>{},target:form});assert.equal(closed,false);assert.equal(els['#save-error'].textContent,'Validation failed');assert.equal(els['#save'].disabled,false);
  fail=false;ctx.edit(booking,null,{editReply:true});await form.onsubmit({preventDefault:()=>{},target:form});assert.equal(calls.at(-1).status,'Bestätigt');assert.equal(form.elements.status.disabled,true);
 });
+
+test('always-active dragging preserves click and keyboard selection, ignores jitter and never selects after a drag',async()=>{
+ let value='',saves=[];let captured=false;const attrs={};const el={dataset:{floorTable:'1'},classList:{add(){},remove(){},toggle(){}},setAttribute:(k,v)=>attrs[k]=v,removeAttribute:k=>delete attrs[k],setPointerCapture:()=>captured=true,hasPointerCapture:()=>captured,releasePointerCapture:()=>captured=false};
+ const svg={createSVGPoint:()=>({x:0,y:0,matrixTransform(){return {x:this.x,y:this.y};}}),getScreenCTM:()=>({inverse:()=>({})})},root={dataset:{},querySelector:()=>svg,querySelectorAll:()=>[el]},ev=(x,y)=>({button:0,pointerId:1,clientX:x,clientY:y,preventDefault(){}});
+ bindTablePicker(root,()=>value,v=>value=v,tableAssignments);bindTableDragging(root,{'1':{x:100,y:200}},async(n,p)=>saves.push([n,p]),{selectOnClick:true});
+ el.onpointerdown(ev(20,40));el.onpointermove(ev(21,41));await el.onpointerup(ev(21,41));el.onclick(ev(21,41));assert.equal(value,'1');assert.equal(saves.length,0);
+ el.onpointerdown(ev(20,40));el.onpointermove(ev(60,100));await el.onpointerup(ev(60,100));el.onclick(ev(60,100));assert.equal(value,'1');assert.deepEqual(saves,[['1',{x:140,y:260}]]);
+ await el.onkeydown({key:'Enter',preventDefault(){}});assert.equal(value,'');await el.onkeydown({key:'ArrowRight',preventDefault(){}});assert.equal(saves.length,2);assert.equal(value,'');
+});

@@ -23,16 +23,16 @@ export function requestSelection(mail,rows){
 }
 export function oldestRequestsFirst(items){return [...items].sort((a,b)=>(Date.parse(a.received_at)||0)-(Date.parse(b.received_at)||0)||String(a.id).localeCompare(String(b.id)));}
 export function renderExcelWorkspace(root,api){
- const memo=api.memo||{},state=()=>api.getState();let disposed=false,busy=false,moving=false,selection={kind:'none',day:api.date,tables:''},chosen='',tableChanged=false,bodyToken=0,selectedMail=null;
- const bodyCache=new Map();let requestsSignature='',displayedMail=null;
- root.classList.remove('day-compact');root.innerHTML='<div class="excel-workspace-left"></div><aside class="excel-workspace-right"><section class="wb-requests"><div class="wb-heading"><h2>Reservationsanfragen · älteste zuerst</h2><span id="wb-request-count"></span></div><div class="wb-request-selector"><select id="wb-request-select" aria-label="Reservationsanfrage auswählen"></select><button type="button" class="secondary small" id="wb-refresh">↻</button></div><div id="wb-request-content" class="wb-request-content"></div><div id="wb-request-actions" class="wb-request-actions"></div><p id="wb-request-feedback" class="wb-feedback" role="status"></p></section><div class="wb-plan-launch"><button type="button" id="wb-open-plan">Tischplan öffnen</button></div></aside><dialog class="wb-plan-dialog"><section class="wb-plan"><div class="wb-heading"><h2>Tischplan</h2><div><button type="button" class="quiet small" id="wb-close-plan" aria-label="Tischplan schliessen">✕</button><button type="button" class="secondary small" id="wb-move">Tische verschieben</button></div></div><p id="wb-plan-context"></p><div id="wb-plan-content" class="wb-plan-content"></div><div class="wb-plan-actions"><span id="wb-picked" role="status"></span><button type="button" class="small" id="wb-apply-tables">Tischwahl übernehmen</button></div><p id="wb-plan-feedback" class="wb-feedback" role="status"></p></section></dialog>';
+ const memo=api.memo||{},state=()=>api.getState();let disposed=false,busy=false,planInteracting=false,selection={kind:'none',day:api.date,tables:''},chosen='',tableChanged=false,bodyToken=0,selectedMail=null;
+ const bodyCache=new Map();let requestsSignature='',displayedMail=null,highlightedMail=null;
+ root.classList.remove('day-compact');root.innerHTML='<div class="excel-workspace-left"></div><aside class="excel-workspace-right"><section class="wb-requests"><div class="wb-heading"><h2>Reservationsanfragen · älteste zuerst</h2><span id="wb-request-count"></span></div><div class="wb-request-selector"><select id="wb-request-select" aria-label="Reservationsanfrage auswählen"></select><button type="button" class="secondary small" id="wb-refresh">↻</button></div><div id="wb-request-content" class="wb-request-content"></div><div id="wb-request-actions" class="wb-request-actions"></div><p id="wb-request-feedback" class="wb-feedback" role="status"></p></section><div class="wb-plan-launch"><button type="button" id="wb-open-plan">Tischplan öffnen</button></div></aside><dialog class="wb-plan-dialog"><section class="wb-plan"><div class="wb-heading"><h2>Tischplan · klicken zum Auswählen, ziehen zum Verschieben</h2><div><button type="button" class="quiet small" id="wb-close-plan" aria-label="Tischplan schliessen">✕</button></div></div><p id="wb-plan-context"></p><div id="wb-plan-content" class="wb-plan-content"></div><div class="wb-plan-actions"><span id="wb-picked" role="status"></span><button type="button" class="small" id="wb-apply-tables">Tischwahl übernehmen</button></div><p id="wb-plan-feedback" class="wb-feedback" role="status"></p></section></dialog>';
  const $=s=>root.querySelector(s),message=(text,where='#wb-request-feedback')=>{if(!disposed)$(where).textContent=text;};
  let sheet;
  function choose(next,{navigate=true}={}){
   const same=selection.kind===next.kind&&selection.mailId===next.mailId&&selection.rowId===next.rowId;
   const fingerprint=x=>JSON.stringify([x.day,x.time,x.people,x.tables]);
   const changed=!same||fingerprint(selection)!==fingerprint(next);
-  if(moving&&changed){message('Bitte zuerst «Verschieben beenden» wählen.','#wb-plan-feedback');return;}
+  if(planInteracting&&changed){message('Tischposition wird noch gespeichert.','#wb-plan-feedback');return;}
   selection=next;memo.selection=next;
   if(!same||changed){chosen=next.tables||'';tableChanged=false;}
   if(validDay(next.day)){api.onDate(next.day);if(navigate)sheet?.navigate(next.day);}
@@ -40,30 +40,29 @@ export function renderExcelWorkspace(root,api){
  }
  function drawPlan(){
   if(disposed)return;const s=state();setFloorLayouts(s.layouts);
-  $('#wb-move').textContent=moving?'Verschieben beenden':'Tische verschieben';
   $('#wb-plan-context').textContent=validDay(selection.day)?`${selection.day} · ${selection.name||'Zeile oder Anfrage auswählen'}`:'Anfrage ohne eindeutiges Datum – bitte zuerst Datum ergänzen.';
-  $('#wb-apply-tables').disabled=moving||selection.kind==='none'||!validDay(selection.day);
-  $('#wb-open-plan').disabled=!validDay(selection.day);$('#wb-move').disabled=!validDay(selection.day);
+  $('#wb-apply-tables').disabled=planInteracting||selection.kind==='none'||!validDay(selection.day);
+  $('#wb-open-plan').disabled=!validDay(selection.day);
   if(!validDay(selection.day)){$('#wb-plan-content').innerHTML='<p class="hint">Ohne eindeutiges Reservationsdatum wird kein Tischplan angezeigt.</p>';$('#wb-picked').textContent='';return;}
-  const host=$('#wb-plan-content'),oldScroll=host.scrollTop;host.classList.toggle('floor-moving',moving);
+  const host=$('#wb-plan-content'),oldScroll=host.scrollTop;host.classList.add('floor-moving');
   host.innerHTML=floorPlan(s.rows.filter(r=>r.id!==selection.booking?.id),selection.day,'all');host.scrollTop=oldScroll;
   const picked=()=>{$('#wb-picked').textContent='Auswahl: '+(chosen||'keine Tische');};picked();
-  if(moving){
-   const positions={...(s.layouts.find(l=>l.date===selection.day)?.positions||{})};
-   bindTableDragging(host,positions,async(number,position)=>{
-    $('#wb-move').disabled=true;$('#wb-close-plan').disabled=true;message('Tischposition wird gespeichert …','#wb-plan-feedback');
-    try{await api.savePosition(selection.day,number,position);message('Tischposition gespeichert.','#wb-plan-feedback');drawPlan();}catch(err){message(err.message,'#wb-plan-feedback');throw err;}finally{if(!disposed){$('#wb-move').disabled=false;$('#wb-close-plan').disabled=false;}}
-   });
-  }else bindTablePicker(host,()=>chosen,value=>{
+  bindTablePicker(host,()=>chosen,value=>{
    try{chosen=tableGroupAssignment(value,selection.people);tableChanged=true;picked();message('Tischwahl übernehmen, um sie zu speichern.','#wb-plan-feedback');}
    catch(err){message(err.message,'#wb-plan-feedback');}
   },tableAssignments);
+  const positions={...(s.layouts.find(l=>l.date===selection.day)?.positions||{})};
+  bindTableDragging(host,positions,async(number,position)=>{
+   $('#wb-close-plan').disabled=true;message('Tischposition wird gespeichert …','#wb-plan-feedback');
+   try{await api.savePosition(selection.day,number,position);message('Tischposition gespeichert.','#wb-plan-feedback');if(!disposed)drawPlan();}catch(err){message(err.message,'#wb-plan-feedback');throw err;}finally{if(!disposed)$('#wb-close-plan').disabled=false;}
+  },{selectOnClick:true,onDragState:active=>{planInteracting=active;if(!disposed){$('#wb-apply-tables').disabled=active||selection.kind==='none'||!validDay(selection.day);$('#wb-close-plan').disabled=active;}}});
+
  }
  const initial=state();
  sheet=renderExcelOverview($('.excel-workspace-left'),{rows:initial.rows,outbox:initial.outbox,date:api.date,save:api.saveReservation,onSaved:api.afterSave,onDate:day=>{api.onDate(day);choose({kind:'none',day,tables:''},{navigate:false});},notice:api.notice,onSelectRow:ctx=>{choose({kind:'row',rowId:ctx.rowId,booking:ctx.booking,day:ctx.day,time:ctx.values.time,people:Number(ctx.values.people),tables:ctx.values.tableNo||'',name:[ctx.values.first,ctx.values.last].filter(Boolean).join(' ')||'Neue Reservation'},{navigate:false});},onReservationChanged:()=>{if(disposed)return;drawRequests();drawPlan();}});
  function actionAllowed(){if(busy)return false;if(sheet.isDirty()){message('Bitte zuerst die geänderten Excel-Zeilen speichern.');return false;}return true;}
  async function refresh({silent=false}={}){
-  if(disposed||busy||moving)return;try{await api.reload();if(disposed)return;const s=state();sheet.replaceData(s.rows,s.outbox);if(selection.booking){const latest=s.rows.find(r=>r.id===selection.booking.id);if(latest){selection={...selection,booking:latest};if(!tableChanged)chosen=latest.table_no||'';}}drawRequests();drawPlan();if(!silent)message('Anfragen und Belegung aktualisiert.');}catch(err){if(!silent)message(err.message);}
+  if(disposed||busy||planInteracting)return;try{await api.reload();if(disposed)return;const s=state();sheet.replaceData(s.rows,s.outbox);if(selection.booking){const latest=s.rows.find(r=>r.id===selection.booking.id);if(latest){selection={...selection,booking:latest};if(!tableChanged)chosen=latest.table_no||'';}}drawRequests();drawPlan();if(!silent)message('Anfragen und Belegung aktualisiert.');}catch(err){if(!silent)message(err.message);}
  }
  function drawRequests(){
   if(disposed)return;const s=state(),pending=oldestRequestsFirst(s.inbox.filter(api.needsAction));
@@ -72,6 +71,8 @@ export function renderExcelWorkspace(root,api){
   memo.mailId=selectedMail;
   if(requestsSignature!==signature){requestsSignature=signature;$('#wb-request-select').innerHTML=pending.map(m=>{const ctx=requestSelection(m,s.rows);return `<option value="${e(m.id)}" ${m.id===selectedMail?'selected':''}>${e(ctx.day||'Datum offen')} · ${e(ctx.name)}</option>`;}).join('');$('#wb-request-select').disabled=!pending.length;}
   const mail=pending.find(m=>m.id===selectedMail);
+  const activeBooking=mail&&(matchingRequestBooking(mail,s.rows)||relatedRequestBooking(mail,s.rows));
+  sheet?.setCurrentRequest(activeBooking?.id||null,{scroll:highlightedMail!==selectedMail});highlightedMail=selectedMail;
   if(!mail){displayedMail=null;$('#wb-request-content').innerHTML='<p class="muted">Keine offenen Reservationsanfragen.</p>';$('#wb-request-actions').innerHTML='';return;}
   $('#wb-request-select').value=selectedMail;
   const ctx=requestSelection(mail,s.rows),d=ctx.booking?guest(ctx.booking):mail.draft?.data||{},contentSignature=JSON.stringify([mail.id,mail.state,mail.draft,ctx.booking?.revision,s.outbox.map(o=>[o.id,o.state])]);
@@ -79,8 +80,12 @@ export function renderExcelWorkspace(root,api){
   displayedMail=mail.id;$('#wb-request-content').dataset.signature=contentSignature;
   const linked=!!mail.reservation_id,duplicate=!linked&&!!ctx.booking,related=relatedRequestBooking(mail,s.rows),queued=s.outbox.find(o=>o.state!=='sent'&&(o.mail_id===mail.id||o.reservation_id===ctx.booking?.id));
   $('#wb-request-content').innerHTML=`<h3>${e(mail.subject||'Ohne Betreff')}</h3><p class="wb-mail-meta">${e(mail.sender)}<br>${e(new Intl.DateTimeFormat('de-CH',{dateStyle:'short',timeStyle:'short',timeZone:'Europe/Zurich'}).format(new Date(mail.received_at)))}</p><p><strong>${e(ctx.name)}</strong> · ${e(ctx.day||'Datum offen')} · ${e(ctx.time||'Zeit offen')} · ${e(ctx.people||'?')} Personen<br>Bestätigung an: <strong>${e(d.email||'E-Mail-Adresse ergänzen')}</strong></p>${duplicate?'<p class="hint">Passender Eintrag bereits vorhanden. Beim Übernehmen wird die Anfrage damit verknüpft.</p>':related?'<p class="hint">Namensgleicher Eintrag am selben Tag gefunden; Uhrzeit oder Personenzahl weichen ab. Bitte vor der Übernahme prüfen.</p>':''}${mail.issues?.length?`<p class="wb-review">${mail.issues.map(e).join('<br>')}</p>`:''}<pre class="wb-original-mail">Mailtext wird geladen …</pre>`;
-  $('#wb-request-actions').innerHTML=`<button type="button" class="secondary small" id="wb-transfer">${linked?'In Liste anzeigen':duplicate?'Mit Eintrag verknüpfen':related?'Abweichung prüfen':'In Liste übernehmen'}</button><button type="button" class="small" id="wb-confirm" ${queued?'disabled':''}>Bestätigen & Mail senden</button><button type="button" class="secondary small" id="wb-edit-reply" ${queued?'disabled':''}>Antwort bearbeiten</button><button type="button" class="quiet small" id="wb-edit-request">Angaben bearbeiten</button>${queued?'<button type="button" class="small" id="wb-retry">Versand erneut versuchen</button>':''}`;
-  if(queued)$('#wb-retry').onclick=async()=>{if(!actionAllowed())return;try{await api.retryOutbox(queued.id);}catch(err){message(err.message);}};$('#wb-transfer').onclick=()=>runRequest('transfer');$('#wb-confirm').onclick=()=>runRequest('confirm');$('#wb-edit-reply').onclick=()=>runRequest('edit');$('#wb-edit-request').onclick=()=>{if(actionAllowed())api.editRequest(mail.id);};
+  const showBooking=ctx.booking||related;
+  $('#wb-request-actions').innerHTML=`${!linked?`<button type="button" class="secondary small" id="wb-transfer">${duplicate?'Mit Eintrag verknüpfen':related?'Abweichung prüfen':'In Liste übernehmen'}</button>`:''}<button type="button" class="secondary small" id="wb-show-booking" ${showBooking?'':'disabled'} title="${showBooking?'Bestehenden Eintrag in der Excel-Liste anzeigen':'Die Anfrage wurde noch nicht in die Liste übernommen'}">In der Liste anzeigen</button><button type="button" class="small" id="wb-confirm" ${queued?'disabled':''}>Bestätigen & Mail senden</button><button type="button" class="secondary small" id="wb-edit-reply" ${queued?'disabled':''}>Antwort bearbeiten</button><button type="button" class="quiet small" id="wb-edit-request">Angaben bearbeiten</button><button type="button" class="quiet small" id="wb-ignore" ${queued?'disabled':''} title="Nur die Anfrage ablegen. Die Reservation bleibt erhalten. Es wird keine E-Mail versendet.">Ignorieren</button>${queued?'<button type="button" class="small" id="wb-retry">Versand erneut versuchen</button>':''}`;
+  if(queued)$('#wb-retry').onclick=async()=>{if(!actionAllowed())return;try{await api.retryOutbox(queued.id);}catch(err){message(err.message);}};
+  if($('#wb-transfer'))$('#wb-transfer').onclick=()=>runRequest('transfer');
+  $('#wb-show-booking').onclick=()=>{if(!actionAllowed()||!showBooking)return;sheet.replaceData(state().rows,state().outbox);if(sheet.focusReservation(showBooking.id))message(related?'Namensgleicher Eintrag angezeigt. Abweichende Angaben bitte prüfen.':'Reservation in der Liste angezeigt.');else message('Der Eintrag konnte nicht angezeigt werden. Bitte aktualisieren.');};
+  $('#wb-ignore').onclick=()=>runRequest('ignore');$('#wb-confirm').onclick=()=>runRequest('confirm');$('#wb-edit-reply').onclick=()=>runRequest('edit');$('#wb-edit-request').onclick=()=>{if(actionAllowed())api.editRequest(mail.id);};
   const token=++bodyToken;
   (async()=>{try{if(!bodyCache.has(mail.id))bodyCache.set(mail.id,(await api.readMail(mail.id)).body||'');if(!disposed&&token===bodyToken&&selectedMail===mail.id)$('#wb-request-content .wb-original-mail').textContent=bodyCache.get(mail.id);}catch(err){if(!disposed&&token===bodyToken)$('#wb-request-content .wb-original-mail').textContent=err.message;}})();
  }
@@ -92,24 +97,25 @@ export function renderExcelWorkspace(root,api){
   const tableValue=isSelected&&tableChanged?chosen:undefined;
   busy=true;$('#wb-request-actions').querySelectorAll('button').forEach(b=>b.disabled=true);message('Wird verarbeitet …');
   try{
-   if(action==='transfer'){
+   if(action==='ignore'){
+    await api.ignore(id);if(disposed)return;const fresh=state();sheet.replaceData(fresh.rows,fresh.outbox);drawRequests();const next=fresh.inbox.find(m=>m.id===selectedMail);choose(next?requestSelection(next,fresh.rows):{kind:'none',day:selection.day,tables:''});message('Anfrage ignoriert. Die Reservation bleibt erhalten. Es wurde keine E-Mail versendet.');
+   }else if(action==='transfer'){
     const booking=await api.transfer(id,tableValue);if(disposed)return;
     if(booking){const fresh=state();sheet.replaceData(fresh.rows,fresh.outbox);sheet.focusReservation(booking.id);message('In Liste übernommen. Es wurde keine E-Mail versendet.');drawRequests();drawPlan();}else message('Bitte die fehlenden oder unklaren Angaben im Formular prüfen.');
    }else{await api.confirm(id,action==='edit',tableValue);if(!disposed)message(action==='edit'?'Bestätigung im Bearbeitungsfenster geöffnet.':'Bestätigung bearbeitet.');}
   }catch(err){message(err.message);}finally{busy=false;if(!disposed){displayedMail=null;drawRequests();}}
  }
- $('#wb-request-select').onchange=()=>{if(moving){$('#wb-request-select').value=selectedMail;message('Bitte zuerst Verschieben beenden.');return;}selectedMail=$('#wb-request-select').value;memo.mailId=selectedMail;displayedMail=null;drawRequests();const m=state().inbox.find(m=>m.id===selectedMail);if(m)choose(requestSelection(m,state().rows));};
- $('#wb-refresh').onclick=()=>refresh();const planDialog=$('.wb-plan-dialog');$('#wb-open-plan').onclick=()=>{drawPlan();planDialog.showModal();};$('#wb-close-plan').onclick=()=>planDialog.close();planDialog.onclose=()=>{moving=false;if(!disposed)drawPlan();};planDialog.oncancel=ev=>{if($('#wb-move').disabled&&moving)ev.preventDefault();};
- $('#wb-move').onclick=()=>{moving=!moving;drawPlan();};
+ $('#wb-request-select').onchange=()=>{if(planInteracting){$('#wb-request-select').value=selectedMail;message('Tischposition wird noch gespeichert.');return;}selectedMail=$('#wb-request-select').value;memo.mailId=selectedMail;displayedMail=null;drawRequests();const m=state().inbox.find(m=>m.id===selectedMail);if(m)choose(requestSelection(m,state().rows));};
+ $('#wb-refresh').onclick=()=>refresh();const planDialog=$('.wb-plan-dialog');$('#wb-open-plan').onclick=()=>{drawPlan();planDialog.showModal();};$('#wb-close-plan').onclick=()=>planDialog.close();planDialog.onclose=()=>{if(!disposed)drawPlan();};planDialog.oncancel=ev=>{if(planInteracting)ev.preventDefault();};
  $('#wb-apply-tables').onclick=async()=>{
-  if(moving||selection.kind==='none')return;
+  if(planInteracting||selection.kind==='none')return;
   if(selection.kind==='mail'){if(!actionAllowed())return;await runRequest('transfer');return;}
   if(selection.booking){
    const button=$('#wb-apply-tables');button.disabled=true;
    try{const saved=await api.saveTables(selection.booking,chosen);if(disposed)return;selection={...selection,booking:saved,tables:saved.table_no};chosen=saved.table_no;tableChanged=false;sheet.applyTable(saved.id,saved.table_no,saved);drawPlan();message('Tischzuordnung gespeichert.','#wb-plan-feedback');}catch(err){message(err.message,'#wb-plan-feedback');}finally{if(!disposed)button.disabled=false;}
   }else{sheet.applyTable(selection.rowId,chosen);message('Tischwahl in Eingabezeile übernommen. Zeile mit «Eintragen» speichern.','#wb-plan-feedback');}
  };
- drawRequests();const first=state().inbox.find(m=>m.id===selectedMail),restore=memo.selection;if(restore?.kind==='row'&&state().rows.some(r=>r.id===restore.rowId)){sheet.focusReservation(restore.rowId);}else if(first)choose(requestSelection(first,state().rows));else drawPlan();
+ drawRequests();const first=state().inbox.find(m=>m.id===selectedMail),restore=memo.selection;if(first)choose(requestSelection(first,state().rows));else if(restore?.kind==='row'&&state().rows.some(r=>r.id===restore.rowId)){sheet.focusReservation(restore.rowId);}else drawPlan();
  const timer=setInterval(()=>refresh({silent:true}),30000);
  return {canLeave:()=>sheet.canLeave(),isDirty:()=>sheet.isDirty(),refreshPlan:drawPlan,dispose(){planDialog.close();disposed=true;bodyToken++;clearInterval(timer);sheet.dispose();}};
 }

@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {weekDays,sheetPayload,sheetTotals} from './public/excel-overview.mjs';
+import {weekDays,sheetPayload,sheetTotals,markCurrentRequest} from './public/excel-overview.mjs';
 test('weekly overview spans Monday to Sunday across season and year boundaries',()=>{
  assert.deepEqual(weekDays('2027-01-01'),['2026-12-28','2026-12-29','2026-12-30','2026-12-31','2027-01-01','2027-01-02','2027-01-03']);
  assert.equal(weekDays('2026-11-15')[0],'2026-11-09');
@@ -24,3 +24,10 @@ test('daily guest totals exclude cancellations and other days',()=>{
 });
 
 test('waiting status can be saved but stays outside reserved guest totals',()=>{const p=sheetPayload(null,{...values,status:'Warteliste'},'waiting');assert.equal(p.status,'Warteliste');assert.deepEqual(sheetTotals([{date:values.date,status:'Warteliste',people:10}],values.date),{reservations:0,people:0});});
+
+test('current request highlight moves between rows and clears without creating or editing reservations',()=>{
+ const rows=['a','b'].map(id=>({dataset:{sheetId:id},classes:new Set(),attrs:{},get classList(){return {toggle:(c,on)=>on?this.classes.add(c):this.classes.delete(c)};},setAttribute(k,v){this.attrs[k]=v;},removeAttribute(k){delete this.attrs[k];}})),root={querySelectorAll:()=>rows};
+ markCurrentRequest(root,'a');assert(rows[0].classes.has('sheet-current-request'));assert.equal(rows[0].attrs['aria-current'],'true');
+ markCurrentRequest(root,'b');assert(!rows[0].classes.has('sheet-current-request'));assert(rows[1].classes.has('sheet-current-request'));
+ markCurrentRequest(root,null);assert(rows.every(r=>r.classes.size===0&&!r.attrs['aria-current']));assert.equal(rows.length,2);
+});

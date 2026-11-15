@@ -6,13 +6,15 @@ export function tableAssignmentState(booking,rows,value=booking.table_no,preview
  if(['Warteliste','Storniert'].includes(booking.status)||booking.deleted_at)return {state:'inactive',message:'Warteliste, stornierte oder gelöschte Reservation.',conflictTables:[]};
  let assigned=value;try{if(preview)assigned=tableGroupAssignment(value,booking.people);}catch(err){return {state:'unassigned',message:err.message,conflictTables:[]};}
  const a=numbers(assigned);
+ if(!preview&&assigned===booking.table_no)a.tables=a.tables.filter(n=>!(booking.released_tables||[]).includes(n));
+ if(!a.tables.length&&(booking.released_tables||[]).length)return {state:'inactive',message:'Tische bereits wieder freigegeben.',conflictTables:[]};
  if(!a.tables.length||a.unclear)return {state:'unassigned',message:a.tables.length?'Tischzuordnung bitte prüfen.':'Noch kein Tisch zugeteilt.',conflictTables:[]};
  const ownPeriod=booking.period||period(booking.time),conflicts=new Set();
  for(const other of rows){
   if(other.id===booking.id||other.date!==booking.date||other.deleted_at||other.status==='Storniert'||Number(other.people)<=0)continue;
   if(!['Bestätigt','Offen','Rückfrage nötig'].includes(other.status))continue;
   const otherPeriod=other.period||period(other.time);if(ownPeriod!==otherPeriod&&ownPeriod!=='ungeklaert'&&otherPeriod!=='ungeklaert')continue;
-  const occupied=new Set(numbers(other.table_no).tables);for(const n of a.tables)if(occupied.has(n))conflicts.add(n);
+  const occupied=new Set(numbers(other.table_no).tables.filter(n=>!(other.released_tables||[]).includes(n)));for(const n of a.tables)if(occupied.has(n))conflicts.add(n);
  }
  const conflictTables=[...conflicts];
  return conflictTables.length?{state:'conflict',message:'Bereits vergeben: '+conflictTables.join(', ')+'. Bitte Tischbelegung prüfen.',conflictTables}:{state:'assigned',message:'Tisch zugeteilt: '+a.tables.join(', ')+'.',conflictTables:[]};

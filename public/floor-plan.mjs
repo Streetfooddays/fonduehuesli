@@ -29,8 +29,8 @@ export function tableAssignments(value=''){
  return {tables,unclear,unknown};
 }
 export function floorOccupancy(rows,day,scope='all'){
- const dayRows=rows.filter(r=>r.date===day&&['Bestätigt','Offen','Rückfrage nötig'].includes(r.status));
- const arrivedTables=new Set(dayRows.filter(r=>r.arrived).flatMap(r=>tableAssignments(r.table_no).tables));
+ const dayRows=rows.filter(r=>!r.deleted_at&&r.date===day&&['Bestätigt','Offen','Rückfrage nötig'].includes(r.status));
+ const arrivedTables=new Set(dayRows.filter(r=>r.arrived).flatMap(r=>tableAssignments(r.table_no).tables.filter(n=>!(r.released_tables||[]).includes(n))));
  const active=dayRows.filter(r=>(scope==='all'||(r.period||period(r.time))===scope||(r.period||period(r.time))==='ungeklaert'));
  const occupancy=Object.fromEntries(TABLE_NUMBERS.map(n=>[n,{number:n,state:'free',bookings:[],times:[]}]));
  const unassigned=[],unclear=[];
@@ -38,7 +38,7 @@ export function floorOccupancy(rows,day,scope='all'){
   const a=tableAssignments(r.table_no);if(a.tables.some(n=>DUPLICATE_NUMBERS.includes(n)))a.unclear=true;
   if(!a.tables.length)unassigned.push(r);
   if(a.unclear)unclear.push(r);
-  for(const n of a.tables){const cell=occupancy[n];cell.bookings.push({...r,assignmentUnclear:a.unclear});}
+  for(const n of a.tables.filter(n=>!(r.released_tables||[]).includes(n))){const cell=occupancy[n];cell.bookings.push({...r,assignmentUnclear:a.unclear});}
  }
  for(const cell of Object.values(occupancy)){
   if(cell.bookings.length)cell.state=cell.bookings.some(r=>r.status==='Bestätigt'&&!r.assignmentUnclear)?'confirmed':'pending';

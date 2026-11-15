@@ -10,3 +10,5 @@ test('free count uses three gondolas, service times independently, and unknown t
  const rows=[r('a',{time:'12:00',table_no:'G1'}),r('b',{gondola:1}),r('c',{status:'Warteliste',table_no:'G3'}),r('d',{status:'Storniert',gondola:1}),r('other',{date:'2099-01-02',gondola:1})];
  assert.deepEqual(gondolaAvailability(rows,day),{free:2,midday:2,evening:2,total:3});rows.push(r('unknown',{time:'',gondola:1}));assert.equal(gondolaAvailability(rows,day).free,1);rows.push(r('third',{gondola:1}),r('overbooked',{gondola:1}));assert.equal(gondolaAvailability(rows,day).free,0);
 });
+
+test('released gondolas stop consuming current capacity while arrival history and row styling remain',()=>{const old=r('old',{gondola:1,table_no:'G1',arrived:true,released_tables:['G1']});assert.equal(gondolaAvailability([old],day).free,3);assert.equal(gondolaRowClass(old),'gondola-reservation');assert.equal(old.arrived,true);});

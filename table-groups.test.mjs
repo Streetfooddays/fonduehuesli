@@ -17,6 +17,6 @@ test('large groups use 4, 6, 8 and 11-guest limits with the confirmed fourth-tab
   assert.equal(tableGroupAssignment(group[0],people),group.slice(0,n).join(', '));
   assert.equal(tableGroupAssignment(group.join(', '),people),group.slice(0,n).join(', '));
  }
- assert.equal(tableGroupAssignment('20',10),'20, 120, 220, 131');assert.equal(tableGroupAssignment('23',11),'23, 123, 223, 133');
+ assert.equal(tableGroupAssignment('20',10),'20, 120, 220, 130');assert.equal(tableGroupAssignment('23',11),'23, 123, 223, 132');
  assert.throws(()=>tableGroupAssignment('21',12),/maximal 11/);assert.equal(tableGroupAssignment('20, 21',14),'20, 21');
 });

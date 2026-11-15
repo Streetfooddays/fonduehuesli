@@ -2,7 +2,7 @@ import {test} from 'node:test';import assert from 'node:assert/strict';
 import {TABLES} from './public/floor-layout.mjs';
 import {TABLE_NUMBERS,DUPLICATE_NUMBERS,tableAssignments,floorOccupancy,floorPlan} from './public/floor-plan.mjs';
 const day='2026-11-20';const booking=(id,table_no,status='Bestätigt',time='18:00')=>({id,date:day,time,period:time===''?'ungeklaert':time<'16:00'?'mittag':'abend',people:2,table_no,status,data:JSON.stringify({last:'Synthetic',first:'Test'})});
-test('geometry retains final numbering with no duplicates',()=>{assert.equal(TABLES.length,56);assert.equal(TABLE_NUMBERS.length,56);assert.equal(TABLES.filter(t=>t.number==='20').length,1);assert.ok(TABLE_NUMBERS.includes('T1'));assert.ok(TABLE_NUMBERS.includes('263'));assert.ok(TABLE_NUMBERS.includes('223'));assert.deepEqual(DUPLICATE_NUMBERS,[]);assert.ok(TABLE_NUMBERS.includes('33'));assert.ok(TABLE_NUMBERS.includes('68'));assert.equal(floorOccupancy([booking('one','66')],day).occupancy['66'].state,'confirmed');});
+test('geometry retains final numbering with no duplicates',()=>{assert.equal(TABLES.length,56);assert.equal(TABLE_NUMBERS.length,56);assert.equal(TABLES.filter(t=>t.number==='20').length,1);assert.ok(TABLE_NUMBERS.includes('T1'));assert.ok(TABLE_NUMBERS.includes('263'));assert.ok(TABLE_NUMBERS.includes('223'));assert.deepEqual(DUPLICATE_NUMBERS,[]);assert.ok(TABLE_NUMBERS.includes('30'));assert.ok(TABLE_NUMBERS.includes('68'));assert.equal(floorOccupancy([booking('one','66')],day).occupancy['66'].state,'confirmed');});
 test('assignments are exact, handle multiple tables, and never reinterpret an unnamed gondola as table 1',()=>{
  assert.deepEqual(tableAssignments('4 und 5').tables,['4','5']);assert.deepEqual(tableAssignments('T1 / 63').tables,['T1','63']);assert.deepEqual(tableAssignments('Tisch 1').tables,['1']);assert.deepEqual(tableAssignments('1-3').tables,['1','2','3']);assert.equal(tableAssignments('63(62').unclear,true);assert.deepEqual(tableAssignments('Gondel 1').tables,[]);assert.deepEqual(tableAssignments('Anbau').tables,[]);assert.deepEqual(tableAssignments('Godel').tables,[]);assert.deepEqual(tableAssignments('20').tables,['20']);
 });
@@ -52,3 +52,7 @@ test('arrival colors all assigned tables in every scope of its day and reverses 
  assert.equal(floorOccupancy([{...arrived,table_no:'2'},other],day).occupancy['1'].state,'confirmed');
  assert.match(floorPlan([arrived],day),/Grün · angekommen/);
 });
+
+test('renumbered tables retain physical positions without duplicate numbers',()=>{for(const [number,x,y] of [['30',386.92,525.27],['130',326.44,525.27],['31',388.17,427.61],['131',327.68,427.61],['32',390.87,343.19],['132',330.38,343.19]]){const t=TABLES.find(t=>t.number===number);assert.equal(t.x,x);assert.equal(t.y,y);}assert(!TABLE_NUMBERS.includes('33'));assert(!TABLE_NUMBERS.includes('133'));});
+
+test('waiting reservations never occupy a table even if they retain a proposed assignment',()=>{assert.equal(floorOccupancy([booking('w','30','Warteliste')],day).occupancy['30'].state,'free');});

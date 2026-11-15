@@ -14,3 +14,8 @@ test('arrival time is chronological, unknown time follows, and cancellation stay
  assert.deepEqual(sorted(rows,'time'),['early','late','unknown','cancel']);
  for(const mode of ['table','name','time'])assert.equal(sorted(rows,mode).at(-1),'cancel');
 });
+
+test('waiting list follows active reservations by receipt order in every sort mode, before cancellations',()=>{
+ const rows=[{...row('new','1','17:00','A','','Warteliste'),received_at:'2099-01-03T10:00Z'},{...row('old','8','20:00','Z','','Warteliste'),received_at:'2099-01-01T10:00Z'},row('active','5','19:00','M'),row('cancel','2','16:00','B','','Storniert')];
+ for(const mode of ['time','table','name'])assert.deepEqual(sorted(rows,mode),['active','old','new','cancel']);
+});

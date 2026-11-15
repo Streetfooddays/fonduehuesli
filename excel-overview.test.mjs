@@ -22,3 +22,5 @@ test('invalid unnamed or fractional entries cannot be saved and capacity excepti
 test('daily guest totals exclude cancellations and other days',()=>{
  assert.deepEqual(sheetTotals([{date:values.date,status:'Bestätigt',people:4},{date:values.date,status:'Offen',people:3},{date:values.date,status:'Storniert',people:50},{date:'2026-12-02',status:'Bestätigt',people:7}],values.date),{reservations:2,people:7});
 });
+
+test('waiting status can be saved but stays outside reserved guest totals',()=>{const p=sheetPayload(null,{...values,status:'Warteliste'},'waiting');assert.equal(p.status,'Warteliste');assert.deepEqual(sheetTotals([{date:values.date,status:'Warteliste',people:10}],values.date),{reservations:0,people:0});});

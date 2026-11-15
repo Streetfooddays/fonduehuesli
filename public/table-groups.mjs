@@ -1,5 +1,5 @@
 export const TABLE_GROUPS=[5,6,7,8].map(n=>[String(n),String(n).repeat(2),String(n).repeat(3)]);
-export const LARGE_TABLE_GROUPS=[['20','120','220','131'],['21','121','221','131'],['22','122','222','132'],['23','123','223','133']];
+export const LARGE_TABLE_GROUPS=[['20','120','220','130'],['21','121','221','130'],['22','122','222','131'],['23','123','223','132']];
 const rules=[...TABLE_GROUPS.map(tables=>({tables,limits:[2,4,6]})),...LARGE_TABLE_GROUPS.map(tables=>({tables,limits:[4,6,8,11]}))];
 export function tableGroupAssignment(value,people){
  const raw=String(value||'').trim(),count=Number(people);if(!Number.isInteger(count)||count<1||!raw)return raw;

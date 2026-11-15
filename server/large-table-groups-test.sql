@@ -3,7 +3,7 @@ do $test$
 declare base integer; people integer; expected text; cluster text[]; blocked boolean;
 begin
  for base in 20..23 loop
-  cluster:=array[base::text,(base+100)::text,(base+200)::text,case when base=20 then '131' else (base+110)::text end];
+  cluster:=array[base::text,(base+100)::text,(base+200)::text,case when base=20 then '130' else (base+109)::text end];
   for people in 1..11 loop
    expected:=array_to_string(cluster[1:(case when people<=4 then 1 when people<=6 then 2 when people<=8 then 3 else 4 end)],', ');
    assert private.table_group_assignment(base::text,people)=expected,'Large group expansion differs';

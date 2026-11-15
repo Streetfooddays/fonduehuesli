@@ -3,7 +3,7 @@ import {tableGroupAssignment} from './table-groups.mjs';
 import {period} from './core.mjs';
 function numbers(value){const a=tableAssignments(value);const extra=a.unknown.map(n=>String(n).replace(/\s/g,''));const valid=extra.filter(n=>/^(?:\d+|[TG]\d+)$/.test(n));return {tables:[...new Set([...a.tables,...valid])],unclear:a.unclear&&!(valid.length===extra.length&&/^[\dTG\s,;/+&]+$/i.test(value||''))};}
 export function tableAssignmentState(booking,rows,value=booking.table_no,preview=false){
- if(booking.status==='Storniert'||booking.deleted_at)return {state:'inactive',message:'Stornierte oder gelöschte Reservation.',conflictTables:[]};
+ if(['Warteliste','Storniert'].includes(booking.status)||booking.deleted_at)return {state:'inactive',message:'Warteliste, stornierte oder gelöschte Reservation.',conflictTables:[]};
  let assigned=value;try{if(preview)assigned=tableGroupAssignment(value,booking.people);}catch(err){return {state:'unassigned',message:err.message,conflictTables:[]};}
  const a=numbers(assigned);
  if(!a.tables.length||a.unclear)return {state:'unassigned',message:a.tables.length?'Tischzuordnung bitte prüfen.':'Noch kein Tisch zugeteilt.',conflictTables:[]};

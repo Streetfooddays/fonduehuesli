@@ -1,0 +1,34 @@
+begin;
+do $test$
+declare uid uuid; payload jsonb; receipt timestamptz; blocked boolean; rev integer;
+begin
+ select t.user_id into uid from public.team_members t join auth.users u on u.id=t.user_id where t.active and u.email_confirmed_at is not null limit 1;
+ if uid is null then raise exception 'Verified member required';end if;
+ perform set_config('request.jwt.claims',jsonb_build_object('sub',uid,'role','authenticated')::text,true);
+ insert into public.reservations(id,date,time,period,people,data,status,source) values('wait-test-capacity-20261115','2099-12-30','18:00','abend',70,'{"last":"Synthetic"}','Bestätigt','Test');
+ payload:='{"action":"save","reservation":{"createId":"wait-test-20261115","date":"2099-12-30","time":"18:30","people":12,"status":"Warteliste","tableNo":"30","gondola":false,"override":false,"note":"Internal","data":{"last":"Synthetic","comment":"Customer text"}}}'::jsonb;
+ perform public.save_reservation(payload);
+ select received_at,revision into receipt,rev from public.reservations where id='wait-test-20261115';
+ assert receipt is not null,'Receipt time exists';
+ assert (select status='Warteliste' and table_no='30' from public.reservations where id='wait-test-20261115'),'Waiting status persisted';
+ assert not exists(select 1 from public.mail_outbox where reservation_id='wait-test-20261115'),'Waiting list never sends mail';
+ blocked:=false;begin perform public.set_reservation_arrival(jsonb_build_object('id','wait-test-20261115','revision',rev,'arrived',true));exception when raise_exception then blocked:=true;end;assert blocked,'Waiting guests cannot check in';
+ payload:=jsonb_set(payload,'{reservation}',((payload->'reservation')-'createId')||jsonb_build_object('id','wait-test-20261115','revision',rev,'status','Bestätigt','tableNo',''));
+ blocked:=false;begin perform public.save_reservation(payload);exception when serialization_failure then blocked:=true;end;assert blocked,'Confirmation still requires capacity approval';
+ payload:=jsonb_set(payload,'{reservation,status}','"Warteliste"');
+ perform public.save_reservation(payload);
+ assert (select received_at=receipt and status='Warteliste' and data::jsonb->>'comment'='Customer text' and note='Internal' from public.reservations where id='wait-test-20261115'),'Edits preserve receipt and separate customer/internal text';
+ insert into public.mail_inbox(id,sender,subject,body,state,reservation_id) values('wait-test-mail-20261115','test@example.invalid','Synthetic','','imported','wait-test-20261115');
+ update public.reservations set status='Offen' where id='wait-test-20261115';
+ update public.reservations set status='Warteliste' where id='wait-test-20261115';
+ assert (select state='ignored' from public.mail_inbox where id='wait-test-mail-20261115'),'Waiting request is handled without confirmation';
+ assert (private.automatic_confirmation_assess('wait-test-mail-20261115')->>'total_people')::integer=70,'Waiting list is excluded from the automation capacity total';
+ perform public.save_floor_position('{"date":"2099-12-30","number":"30","x":400,"y":500,"revision":0}');
+ perform public.save_floor_position('{"date":"2099-12-30","number":"130","x":300,"y":500,"revision":1}');
+ blocked:=false;begin perform public.save_floor_position('{"date":"2099-12-30","number":"33","x":400,"y":500,"revision":2}');exception when raise_exception then blocked:=true;end;assert blocked,'Removed number is no longer movable';
+ assert private.table_group_assignment('20',11)='20, 120, 220, 130';
+ assert private.table_group_assignment('21',11)='21, 121, 221, 130';
+ assert private.table_group_assignment('22',11)='22, 122, 222, 131';
+ assert private.table_group_assignment('23',11)='23, 123, 223, 132';
+end $test$;
+rollback;

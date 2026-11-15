@@ -1,4 +1,5 @@
-import {cancellationsLast} from './reservation-order.mjs';
+import {reservationRemarks} from './day-list.mjs';
+import {cancellationsLast,reservationRank} from './reservation-order.mjs';
 import {guest,escapeHTML as e} from './core.mjs';
 import {tableAssignments} from './floor-plan.mjs';
 export function weekDays(value){
@@ -6,7 +7,7 @@ export function weekDays(value){
  start.setUTCDate(start.getUTCDate()-(start.getUTCDay()+6)%7);
  return Array.from({length:7},(_,i)=>{const d=new Date(start);d.setUTCDate(d.getUTCDate()+i);return d.toISOString().slice(0,10);});
 }
-export function sheetTotals(rows,day){const active=rows.filter(r=>r.date===day&&r.status!=='Storniert');return {reservations:active.length,people:active.reduce((n,r)=>n+Number(r.people||0),0)};}
+export function sheetTotals(rows,day){const active=rows.filter(r=>r.date===day&&!['Warteliste','Storniert'].includes(r.status));return {reservations:active.length,people:active.reduce((n,r)=>n+Number(r.people||0),0)};}
 export function sheetPayload(r,values,createId){
  const data={...(r?guest(r):{})};for(const k of ['last','first','phone','email','comment'])data[k]=String(values[k]||'').trim();
  if(!data.last&&!data.first)throw Error('Bitte Nachname oder Vorname eintragen.');
@@ -17,7 +18,7 @@ const dayLabel=value=>new Intl.DateTimeFormat('de-CH',{weekday:'long',day:'2-dig
 const cols=[['last','Nachname','text'],['first','Vorname','text'],['time','Zeit','time'],['people','Anz. Personen','number'],['tableNo','Tisch','text'],['phone','Telefon','tel'],['email','E-Mail','email'],['comment','Bemerkungen','textarea']];
 function rowHTML(r,day,locked=false){
  const d=r?guest(r):{},id=r?.id||crypto.randomUUID();
- return `<tr data-sheet-id="${e(id)}" data-sheet-day="${e(day)}" data-sheet-new="${!r}" class="${r?.arrived?'arrived-row':''} ${r?.status==='Storniert'?'sheet-cancelled':''}">${cols.map(([key,label,type])=>{const value={time:r?.time,people:r?.people,tableNo:r?.table_no}[key]??d[key]??'';const attrs=`name="${key}" aria-label="${label} · ${e(dayLabel(day))}" ${locked?'disabled':''}`;return `<td>${type==='textarea'?`<textarea ${attrs} rows="1" maxlength="4000">${e(value)}</textarea>`:`<input ${attrs} type="${type}" value="${e(value)}" ${type==='number'?`min="${r?0:1}" max="1000" step="1" required`:key==='tableNo'?'maxlength="100"':'maxlength="4000"'}>`}</td>`;}).join('')}<td><select name="status" aria-label="Reservationsstatus" ${locked?'disabled':''}>${['Bestätigt','Offen','Rückfrage nötig','Storniert'].map(s=>`<option ${s===(r?.status||'Bestätigt')?'selected':''}>${s}</option>`).join('')}</select>${r?.arrived?'<small>✓ Angekommen</small>':''}</td><td class="sheet-save-cell"><button type="button" class="small" data-sheet-save ${locked?'disabled':''}>${r?'Speichern':'Eintragen'}</button><small class="sheet-feedback" role="status">${locked?'Versand zuerst abschliessen':''}</small><label class="sheet-override" hidden><input name="override" type="checkbox">Belegung geprüft / Ausnahme zulassen</label></td></tr>`;
+ return `<tr data-sheet-id="${e(id)}" data-sheet-day="${e(day)}" data-sheet-new="${!r}" class="${r?.arrived?'arrived-row':''} ${r?.status==='Storniert'?'sheet-cancelled':r?.status==='Warteliste'?'sheet-waitlist':''}">${cols.map(([key,label,type])=>{const value={time:r?.time,people:r?.people,tableNo:r?.table_no,comment:r?reservationRemarks(r):''}[key]??d[key]??'';const attrs=`name="${key}" aria-label="${label} · ${e(dayLabel(day))}" ${locked?'disabled':''}`;return `<td>${type==='textarea'?`<textarea ${attrs} rows="1" maxlength="4000">${e(value)}</textarea>`:`<input ${attrs} type="${type}" value="${e(value)}" ${type==='number'?`min="${r?0:1}" max="1000" step="1" required`:key==='tableNo'?'maxlength="100"':'maxlength="4000"'}>`}</td>`;}).join('')}<td><select name="status" aria-label="Reservationsstatus" ${locked?'disabled':''}>${['Bestätigt','Offen','Rückfrage nötig','Warteliste','Storniert'].map(s=>`<option ${s===(r?.status||'Bestätigt')?'selected':''}>${s}</option>`).join('')}</select>${r?.arrived?'<small>✓ Angekommen</small>':''}</td><td class="sheet-save-cell"><button type="button" class="small" data-sheet-save ${locked?'disabled':''}>${r?'Speichern':'Eintragen'}</button><small class="sheet-feedback" role="status">${locked?'Versand zuerst abschliessen':''}</small><label class="sheet-override" hidden><input name="override" type="checkbox">Belegung geprüft / Ausnahme zulassen</label></td></tr>`;
 }
 export function renderExcelOverview(root,{rows,outbox=[],date,save,onSaved,onDate,notice,onSelectRow=()=>{},onReservationChanged=()=>{}}){
  let selected=date,selectedRowId=null;
@@ -34,11 +35,11 @@ export function renderExcelOverview(root,{rows,outbox=[],date,save,onSaved,onDat
  function dayRowsHTML(day){
   const list=rows.filter(r=>r.date===day).sort((a,b)=>cancellationsLast(a,b)||(a.time||'99').localeCompare(b.time||'99')||String(guest(a).last||'').localeCompare(String(guest(b).last||''),'de'));
   const html=r=>rowHTML(r,day,outbox.some(o=>o.reservation_id===r.id&&o.state!=='sent'));
-  return list.filter(r=>r.status!=='Storniert').map(html).join('')+rowHTML(null,day)+list.filter(r=>r.status==='Storniert').map(html).join('');
+  return list.filter(r=>!['Warteliste','Storniert'].includes(r.status)).map(html).join('')+rowHTML(null,day)+list.filter(r=>r.status==='Warteliste').map(html).join('')+list.filter(r=>r.status==='Storniert').map(html).join('');
  }
  function placeCancelledLast(body){
-  const rank=tr=>tr.dataset.sheetNew==='true'?1:rows.find(r=>r.id===tr.dataset.sheetId)?.status==='Storniert'?2:0;
-  [...body.children].sort((a,b)=>rank(a)-rank(b)).forEach(tr=>body.append(tr));
+  const rank=tr=>tr.dataset.sheetNew==='true'?1:reservationRank(rows.find(r=>r.id===tr.dataset.sheetId)||{})*2;
+  [...body.children].sort((a,b)=>rank(a)-rank(b)||(rank(a)===2?cancellationsLast(rows.find(r=>r.id===a.dataset.sheetId),rows.find(r=>r.id===b.dataset.sheetId)):0)).forEach(tr=>body.append(tr));
  }
  function updateTotals(){root.querySelectorAll('[data-sheet-total]').forEach(el=>{const t=sheetTotals(rows,el.dataset.sheetTotal);el.textContent=`${t.reservations} Reservationen · ${t.people} Personen`;});}
  function rowContext(tr){const values=Object.fromEntries([...tr.querySelectorAll('[name]')].map(c=>[c.name,c.type==='checkbox'?c.checked:c.value]));return {rowId:tr.dataset.sheetId,day:tr.dataset.sheetDay,isNew:tr.dataset.sheetNew==='true',booking:rows.find(r=>r.id===tr.dataset.sheetId)||null,values};}

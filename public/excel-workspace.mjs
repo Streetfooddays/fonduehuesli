@@ -21,10 +21,11 @@ export function requestSelection(mail,rows){
  const booking=matchingRequestBooking(mail,rows),draft=mail.draft||{};
  return {kind:'mail',mailId:mail.id,booking,rowId:booking?.id||null,day:booking?.date||draft.date||'',time:booking?.time||draft.time||'',people:booking?.people??draft.people??0,tables:booking?.table_no||'',name:[(booking?guest(booking):draft.data)?.first,(booking?guest(booking):draft.data)?.last].filter(Boolean).join(' ')||'Anfrage ohne Namen'};
 }
+export function oldestRequestsFirst(items){return [...items].sort((a,b)=>(Date.parse(a.received_at)||0)-(Date.parse(b.received_at)||0)||String(a.id).localeCompare(String(b.id)));}
 export function renderExcelWorkspace(root,api){
- const memo=api.memo||{},state=()=>api.getState();let disposed=false,busy=false,moving=false,selection={kind:'none',day:api.date,tables:''},chosen='',tableChanged=false,bodyToken=0,selectedMail=memo.mailId||null;
+ const memo=api.memo||{},state=()=>api.getState();let disposed=false,busy=false,moving=false,selection={kind:'none',day:api.date,tables:''},chosen='',tableChanged=false,bodyToken=0,selectedMail=null;
  const bodyCache=new Map();let requestsSignature='',displayedMail=null;
- root.classList.remove('day-compact');root.innerHTML='<div class="excel-workspace-left"></div><aside class="excel-workspace-right"><section class="wb-requests"><div class="wb-heading"><h2>Reservationsanfragen</h2><span id="wb-request-count"></span></div><div class="wb-request-selector"><select id="wb-request-select" aria-label="Reservationsanfrage auswählen"></select><button type="button" class="secondary small" id="wb-refresh">↻</button></div><div id="wb-request-content" class="wb-request-content"></div><div id="wb-request-actions" class="wb-request-actions"></div><p id="wb-request-feedback" class="wb-feedback" role="status"></p></section><section class="wb-plan"><div class="wb-heading"><h2>Tischplan</h2><div><button type="button" class="secondary small" id="wb-enlarge">Vergrössern</button><button type="button" class="secondary small" id="wb-move">Tische verschieben</button></div></div><p id="wb-plan-context"></p><div id="wb-plan-content" class="wb-plan-content"></div><div class="wb-plan-actions"><span id="wb-picked" role="status"></span><button type="button" class="small" id="wb-apply-tables">Tischwahl übernehmen</button></div><p id="wb-plan-feedback" class="wb-feedback" role="status"></p></section></aside>';
+ root.classList.remove('day-compact');root.innerHTML='<div class="excel-workspace-left"></div><aside class="excel-workspace-right"><section class="wb-requests"><div class="wb-heading"><h2>Reservationsanfragen · älteste zuerst</h2><span id="wb-request-count"></span></div><div class="wb-request-selector"><select id="wb-request-select" aria-label="Reservationsanfrage auswählen"></select><button type="button" class="secondary small" id="wb-refresh">↻</button></div><div id="wb-request-content" class="wb-request-content"></div><div id="wb-request-actions" class="wb-request-actions"></div><p id="wb-request-feedback" class="wb-feedback" role="status"></p></section><div class="wb-plan-launch"><button type="button" id="wb-open-plan">Tischplan öffnen</button></div></aside><dialog class="wb-plan-dialog"><section class="wb-plan"><div class="wb-heading"><h2>Tischplan</h2><div><button type="button" class="quiet small" id="wb-close-plan" aria-label="Tischplan schliessen">✕</button><button type="button" class="secondary small" id="wb-move">Tische verschieben</button></div></div><p id="wb-plan-context"></p><div id="wb-plan-content" class="wb-plan-content"></div><div class="wb-plan-actions"><span id="wb-picked" role="status"></span><button type="button" class="small" id="wb-apply-tables">Tischwahl übernehmen</button></div><p id="wb-plan-feedback" class="wb-feedback" role="status"></p></section></dialog>';
  const $=s=>root.querySelector(s),message=(text,where='#wb-request-feedback')=>{if(!disposed)$(where).textContent=text;};
  let sheet;
  function choose(next,{navigate=true}={}){
@@ -42,7 +43,7 @@ export function renderExcelWorkspace(root,api){
   $('#wb-move').textContent=moving?'Verschieben beenden':'Tische verschieben';
   $('#wb-plan-context').textContent=validDay(selection.day)?`${selection.day} · ${selection.name||'Zeile oder Anfrage auswählen'}`:'Anfrage ohne eindeutiges Datum – bitte zuerst Datum ergänzen.';
   $('#wb-apply-tables').disabled=moving||selection.kind==='none'||!validDay(selection.day);
-  $('#wb-enlarge').disabled=!validDay(selection.day);$('#wb-move').disabled=!validDay(selection.day);
+  $('#wb-open-plan').disabled=!validDay(selection.day);$('#wb-move').disabled=!validDay(selection.day);
   if(!validDay(selection.day)){$('#wb-plan-content').innerHTML='<p class="hint">Ohne eindeutiges Reservationsdatum wird kein Tischplan angezeigt.</p>';$('#wb-picked').textContent='';return;}
   const host=$('#wb-plan-content'),oldScroll=host.scrollTop;host.classList.toggle('floor-moving',moving);
   host.innerHTML=floorPlan(s.rows.filter(r=>r.id!==selection.booking?.id),selection.day,'all');host.scrollTop=oldScroll;
@@ -50,8 +51,8 @@ export function renderExcelWorkspace(root,api){
   if(moving){
    const positions={...(s.layouts.find(l=>l.date===selection.day)?.positions||{})};
    bindTableDragging(host,positions,async(number,position)=>{
-    $('#wb-move').disabled=true;message('Tischposition wird gespeichert …','#wb-plan-feedback');
-    try{await api.savePosition(selection.day,number,position);message('Tischposition gespeichert.','#wb-plan-feedback');drawPlan();}catch(err){message(err.message,'#wb-plan-feedback');throw err;}finally{if(!disposed)$('#wb-move').disabled=false;}
+    $('#wb-move').disabled=true;$('#wb-close-plan').disabled=true;message('Tischposition wird gespeichert …','#wb-plan-feedback');
+    try{await api.savePosition(selection.day,number,position);message('Tischposition gespeichert.','#wb-plan-feedback');drawPlan();}catch(err){message(err.message,'#wb-plan-feedback');throw err;}finally{if(!disposed){$('#wb-move').disabled=false;$('#wb-close-plan').disabled=false;}}
    });
   }else bindTablePicker(host,()=>chosen,value=>{
    try{chosen=tableGroupAssignment(value,selection.people);tableChanged=true;picked();message('Tischwahl übernehmen, um sie zu speichern.','#wb-plan-feedback');}
@@ -65,7 +66,7 @@ export function renderExcelWorkspace(root,api){
   if(disposed||busy||moving)return;try{await api.reload();if(disposed)return;const s=state();sheet.replaceData(s.rows,s.outbox);if(selection.booking){const latest=s.rows.find(r=>r.id===selection.booking.id);if(latest){selection={...selection,booking:latest};if(!tableChanged)chosen=latest.table_no||'';}}drawRequests();drawPlan();if(!silent)message('Anfragen und Belegung aktualisiert.');}catch(err){if(!silent)message(err.message);}
  }
  function drawRequests(){
-  if(disposed)return;const s=state(),pending=s.inbox.filter(api.needsAction);
+  if(disposed)return;const s=state(),pending=oldestRequestsFirst(s.inbox.filter(api.needsAction));
   const signature=JSON.stringify([pending.map(m=>[m.id,m.state,m.reservation_id,m.draft,matchingRequestBooking(m,s.rows)?.revision]),s.outbox.map(o=>[o.id,o.state])]);$('#wb-request-count').textContent=String(pending.length);
   if(!pending.some(m=>m.id===selectedMail))selectedMail=pending[0]?.id||null;
   memo.mailId=selectedMail;
@@ -98,7 +99,7 @@ export function renderExcelWorkspace(root,api){
   }catch(err){message(err.message);}finally{busy=false;if(!disposed){displayedMail=null;drawRequests();}}
  }
  $('#wb-request-select').onchange=()=>{if(moving){$('#wb-request-select').value=selectedMail;message('Bitte zuerst Verschieben beenden.');return;}selectedMail=$('#wb-request-select').value;memo.mailId=selectedMail;displayedMail=null;drawRequests();const m=state().inbox.find(m=>m.id===selectedMail);if(m)choose(requestSelection(m,state().rows));};
- $('#wb-refresh').onclick=()=>refresh();$('#wb-enlarge').onclick=()=>api.enlarge(selection.day,chosen);
+ $('#wb-refresh').onclick=()=>refresh();const planDialog=$('.wb-plan-dialog');$('#wb-open-plan').onclick=()=>{drawPlan();planDialog.showModal();};$('#wb-close-plan').onclick=()=>planDialog.close();planDialog.onclose=()=>{moving=false;if(!disposed)drawPlan();};planDialog.oncancel=ev=>{if($('#wb-move').disabled&&moving)ev.preventDefault();};
  $('#wb-move').onclick=()=>{moving=!moving;drawPlan();};
  $('#wb-apply-tables').onclick=async()=>{
   if(moving||selection.kind==='none')return;
@@ -110,5 +111,5 @@ export function renderExcelWorkspace(root,api){
  };
  drawRequests();const first=state().inbox.find(m=>m.id===selectedMail),restore=memo.selection;if(restore?.kind==='row'&&state().rows.some(r=>r.id===restore.rowId)){sheet.focusReservation(restore.rowId);}else if(first)choose(requestSelection(first,state().rows));else drawPlan();
  const timer=setInterval(()=>refresh({silent:true}),30000);
- return {canLeave:()=>sheet.canLeave(),isDirty:()=>sheet.isDirty(),refreshPlan:drawPlan,dispose(){disposed=true;bodyToken++;clearInterval(timer);sheet.dispose();}};
+ return {canLeave:()=>sheet.canLeave(),isDirty:()=>sheet.isDirty(),refreshPlan:drawPlan,dispose(){planDialog.close();disposed=true;bodyToken++;clearInterval(timer);sheet.dispose();}};
 }

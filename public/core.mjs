@@ -1,7 +1,7 @@
 export function guest(r) { try { return JSON.parse(r.data || '{}'); } catch { return {}; } }
 export function totals(rows) {
-  const result={mittag:0,abend:0,ungeklaert:0,offen:0,storniert:0,rueckfrage:0};
-  for(const r of rows) { if(r.status==='Bestätigt') result[r.period]=(result[r.period]||0)+Number(r.people); else if(r.status==='Offen') result.offen+=Number(r.people); else if(r.status==='Rückfrage nötig') result.rueckfrage+=Number(r.people); else result.storniert+=Number(r.people); }
+  const result={mittag:0,abend:0,ungeklaert:0,offen:0,storniert:0,rueckfrage:0,warteliste:0};
+  for(const r of rows) { if(r.status==='Bestätigt') result[r.period]=(result[r.period]||0)+Number(r.people); else if(r.status==='Offen') result.offen+=Number(r.people); else if(r.status==='Rückfrage nötig') result.rueckfrage+=Number(r.people); else if(r.status==='Warteliste')result.warteliste+=Number(r.people); else result.storniert+=Number(r.people); }
   return result;
 }
 export function csv(rows) {
@@ -14,7 +14,7 @@ export function period(time){return !time?'ungeklaert':time<'16:00'?'mittag':'ab
 export function escapeHTML(v) {return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 
 export function bookingSummary(rows) {
-  const active=rows.filter(r=>r.status!=="Storniert");
+  const active=rows.filter(r=>!['Warteliste','Storniert'].includes(r.status));
   const people=active.reduce((sum,r)=>sum+Number(r.people),0);
   return {reservations:active.length,people,revenue:people*65};
 }

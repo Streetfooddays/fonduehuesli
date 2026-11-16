@@ -36,3 +36,5 @@ test('restaurant instructions in a quoted confirmation do not become customer re
  const text='Danke.\n\n-----Original Message-----\nVon: Fonduehüsli <reservation@fonduehuesli.ch>\nAn: anna@example.invalid\n\nDeine Reservation: 12. Dezember 2026, 18:30 Uhr, 6 Personen.\nBitte Allergien vorher melden.\nFreundliche Grüsse\nSabrina Oliver';
  const parsed=parseMail(text,{receivedAt:'2026-11-16',sender:'anna@example.invalid',subject:'Re: Bestätigung'});assert(!parsed.draft.data.comment?.includes('Allergien vorher melden'));
 });
+
+test('the compact inbox can retain direct navigation to the reservation day',()=>{const {document}=parseHTML(compactRequestHTML({id:'request',draft:{date:'2026-12-12',data:{}}},null,{dateLink:true}));assert.equal(document.querySelector('[data-request-day]').dataset.requestDay,'request');assert.match(document.querySelector('[data-request-day]').textContent,/12.12.2026/);});

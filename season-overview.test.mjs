@@ -14,3 +14,17 @@ test('field edits save to server, update totals and preserve the next focused in
  await renderSeasonOverview(root,{rows:[b('x','2026-11-11','12:00',2)],current:'2026-11-16',req:async()=>[],rpc:async(name,{p})=>{saved={name,p};return {date:p.date,values:{[p.key]:p.value},revision:2};},notice:()=>{},onDate:()=>{}});
  const input=root.querySelector('[data-overview-day="2026-11-11"][data-overview-key="kk"]');input.value='100,50';input.dispatchEvent(new window.Event('change',{bubbles:true}));await new Promise(r=>setTimeout(r,0));assert.equal(saved.name,'save_overview_field');assert.equal(saved.p.previous,null);assert.equal(saved.p.value,100.5);assert(root.querySelector('.so-month-totals').textContent.includes('100.50'));assert.equal(root.querySelector('#overview-save-status').textContent,'Gespeichert');delete globalThis.document;
 });
+
+test('expected revenue uses reserved guests; manual effective revenue overrides payments and reconciles',()=>{
+ const rows=[b('a','2026-11-11','12:00',2),b('b','2026-11-11','18:00',3),b('c','2026-12-01','18:00',4),b('w','2026-11-11','18:00',20,'Warteliste'),b('x','2026-11-11','18:00',20,'Storniert')];
+ const s=overviewSummary(rows,[{date:'2026-11-11',values:{kk:100,effective_revenue:280}},{date:'2026-12-01',values:{cash:210}}],2026);
+ assert.equal(s.total.expected,585);assert.equal(s.total.umsatz,490);assert.equal(s.months[0].expected,325);assert.equal(s.months[0].umsatz,280);assert.equal(s.months[0].days.find(d=>d.date==='2026-11-11').schnitt,56);
+ const {document}=parseHTML(overviewHTML(s));const row=document.querySelector('[data-overview-date="2026-11-11"]');assert.equal(row.querySelector('[data-overview-key="effective_revenue"]').value,'280');assert.equal(row.children[6].textContent,'325.00');
+ const headers=document.querySelector('.so-month-totals thead tr').children.length;assert.equal(document.querySelector('.so-month-totals tbody tr').children.length,headers);
+ const zero=overviewSummary(rows,[{date:'2026-11-11',values:{kk:100,effective_revenue:0}}],2026);assert.equal(zero.months[0].umsatz,0);
+});
+test('effective revenue field saves as a number through the same guarded field API',async()=>{
+ const {document,window}=parseHTML('<div id="root"></div>');globalThis.document=document;let saved;const root=document.querySelector('#root');
+ await renderSeasonOverview(root,{rows:[b('a','2026-11-11','18:00',2)],current:'2026-11-16',req:async()=>[],rpc:async(name,{p})=>{saved=p;return {date:p.date,values:{[p.key]:p.value}};},notice:()=>{},onDate:()=>{}});
+ const input=root.querySelector('[data-overview-day="2026-11-11"][data-overview-key="effective_revenue"]');input.value='180,50';input.dispatchEvent(new window.Event('change',{bubbles:true}));await new Promise(r=>setTimeout(r,0));assert.equal(saved.value,180.5);assert.equal(saved.key,'effective_revenue');assert.equal(saved.previous,null);assert(root.querySelector('.so-month-totals').textContent.includes('180.50'));delete globalThis.document;
+});

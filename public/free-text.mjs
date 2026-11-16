@@ -11,7 +11,9 @@ export function latestMessage(text=''){
 }
 export function freeTextReservation(text,options={}){
  const body=latestMessage(text),issues=[],draft={date:'',time:'',people:null,data:{}};
- const content=[options.subject,body].filter(Boolean).join('\n');
+ const reply=/^(?:(?:re|aw|antw)\s*:\s*)+/i.test(options.subject||'');
+ const context=reply?freeTextReservation('',{...options,subject:String(options.subject).replace(/^(?:(?:re|aw|antw)\s*:\s*)+/i,'')}):null;
+ const content=[reply?'':options.subject,body].filter(Boolean).join('\n');
  const parseDate=parseReservationDate(content.replace(/\b(?:um|gegen|ab|ca\.?)\s+\d{1,2}[.:]\d{2}(?:\s*(?:Uhr|h))?/gi,''),options);
  draft.date=parseDate.date;issues.push(...parseDate.issues);
  const unique=(values,label)=>{const set=[...new Set(values)];if(set.length>1){issues.push('Mehrere Angaben: '+label+'. Bitte prüfen.');return null;}return set[0]??null;};
@@ -40,19 +42,26 @@ export function freeTextReservation(text,options={}){
  // Addresses are taken only from the current sender, never from quoted correspondence.
  const senderEmail=String(options.sender||'').match(/(?:<|^)([^\s<>@]+@[^\s<>@]+\.[^\s<>@]+)>?$/);
  if(senderEmail)draft.data.email=senderEmail[1];
+ const notes=body.split('\n').map(line=>line.trim()).filter(line=>!/^(?:Von|From|An|To|Gesendet|Sent|Date|Datum|Betreff|Subject):/i.test(line)&&/allerg|gluten|laktos|vegetar|vegan|kinderstuhl|kinderwagen|rollstuhl|geburtstag|am fenster|mitbring|mitnehm|stornier|absag|annull|verschieb|änder|aender|benötig|benoetig|brauchen/i.test(line));
+ if(notes.length)draft.data.comment=[...new Set(notes)].join('\n').slice(0,4000);
+ if(context){
+  if(!draft.date&&parseDate.issues.every(i=>/Datum fehlt/.test(i))&&context.draft.date){draft.date=context.draft.date;for(let i=issues.length-1;i>=0;i--)if(/Datum fehlt/.test(issues[i]))issues.splice(i,1);issues.push(...context.issues.filter(i=>/Jahr nicht angegeben/.test(i)));}
+  if(!draft.time&&!issues.some(i=>/unterschiedliche Ankunftszeiten/.test(i)))draft.time=context.draft.time;
+  if(!draft.people&&!issues.some(i=>/unterschiedliche Personenzahlen|Erwachsenen und Kindern/.test(i)))draft.people=context.draft.people;
+ }
  if(draft.date||draft.time||draft.people||name)issues.push('Freie E-Mail: erkannte Angaben vor der Bestätigung prüfen.');
  return {draft,issues};
 }
 
 export function mailThreadMessages(text,options={}){
- const parts=[];let lines=[],sender=options.sender||'',subject=options.subject||'',headers=false,depth=0;
- const flush=()=>{const body=lines.join('\n').trim();if(body)parts.push({body,sender,subject});lines=[];};
+ const parts=[];let lines=[],sender=options.sender||'',subject=options.subject||'',recipients='',headers=false,depth=0;
+ const flush=()=>{const body=lines.join('\n').trim();if(body)parts.push({body,sender,subject,recipients});lines=[];};
  for(const raw of String(text||'').replace(/\r/g,'').split('\n')){
   const level=(raw.match(/^\s*(?:>\s*)+/)?.[0].match(/>/g)||[]).length,line=raw.replace(/^\s*(?:>\s*)+/,'');
-  if(/^(?:\s*[-_—]{2,}\s*(?:Original|Ursprüngliche|Weitergeleitete|Forwarded)|\s*Am .{5,}schrieb.{0,100}:|\s*On .{5,}wrote:)/i.test(line)){flush();sender='';subject='';headers=true;depth=level;continue;}
-  if(level!==depth&&lines.some(s=>s.trim())){flush();sender='';subject='';}depth=level;
-  const from=line.match(/^\s*(?:Von|From):\s*(.+)$/i);if(from){flush();sender=from[1].trim();subject='';headers=true;continue;}
-  if(headers&&/^\s*(?:An|To|Cc|Bcc|Gesendet|Sent|Date|Datum|Betreff|Subject):/i.test(line)){const m=line.match(/^\s*(?:Betreff|Subject):\s*(.+)$/i);if(m)subject=m[1].trim();continue;}
+  if(/^(?:\s*[-_—]{2,}\s*(?:Original|Ursprüngliche|Weitergeleitete|Forwarded)|\s*Am .{5,}schrieb.{0,100}:|\s*On .{5,}wrote:)/i.test(line)){flush();sender='';subject='';recipients='';headers=true;depth=level;continue;}
+  if(level!==depth&&lines.some(s=>s.trim())){flush();sender='';subject='';recipients='';}depth=level;
+  const from=line.match(/^\s*(?:Von|From):\s*(.+)$/i);if(from){flush();sender=from[1].trim();subject='';recipients='';headers=true;continue;}
+  if(headers&&/^\s*(?:An|To|Cc|Bcc|Gesendet|Sent|Date|Datum|Betreff|Subject):/i.test(line)){const m=line.match(/^\s*(?:Betreff|Subject):\s*(.+)$/i);if(m)subject=m[1].trim();const to=line.match(/^\s*(?:An|To):\s*(.+)$/i);if(to)recipients=to[1].trim();continue;}
   if(!line.trim())headers=false;lines.push(line);
  }
  flush();return parts.length?parts:[{body:String(text||''),sender:options.sender||'',subject:options.subject||''}];

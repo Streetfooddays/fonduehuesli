@@ -38,7 +38,8 @@ Deno.serve(async(req:Request)=>{
    if(fullText.length>60000){parsed.issues.push('Mailtext gekürzt: Originalmail im Postfach prüfen.');parsed.complete=false;}
    if((mail.attachments||[]).some((a:any)=>a.content_disposition!=='inline')){parsed.issues.push('Anhänge im Originalpostfach prüfen.');parsed.complete=false;}
    if(/\b(storn|absage|änderung|aenderung|verschieb|annull)/i.test(mail.subject||'')){parsed.issues.push('Betreff weist auf eine Änderung oder Stornierung hin.');parsed.complete=false;}
-   const result=await rpc('mail_ingest',{p:{id,message_id:String(mail.message_id||''),sender:String(mail.from||''),subject:String(mail.subject||''),subject:String(mail.subject||''),body:text,...parsed,candidate:reservationCandidate(parsed)}});
+   const result=await rpc('mail_ingest',{p:{id,message_id:String(mail.message_id||''),sender:String(mail.from||''),subject:String(mail.subject||''),body:text,...parsed,candidate:reservationCandidate(parsed)}});
+   if(parsed.draft.is_reply)return answer({...result,automatic:{state:'manual'},needs_review:true});
    // Prepared automation is gated by persistent configuration (initially disabled).
    // Any automation problem leaves the received request available for manual handling.
    let automatic;

@@ -40,7 +40,7 @@ function parseSingleMail(text,options={}){
  return {draft:{date,time,people,data},issues,complete:issues.length===0};
 }
 export function parseMail(text,options={}){
- const messages=mailThreadMessages(text,options);if(messages.length===1)return parseSingleMail(messages[0].body,{...options,sender:messages[0].sender||options.sender,subject:messages[0].subject});
+ const messages=mailThreadMessages(text,options);if(messages.length===1){const parsed=parseSingleMail(messages[0].body,{...options,sender:messages[0].sender||options.sender,subject:messages[0].subject});if(/^(?:re|aw|antw)\s*:/i.test(options.subject||'')){parsed.draft.is_reply=true;parsed.complete=false;parsed.issues.push('Antwort auf eine bestehende Anfrage: passende Reservation vor der Übernahme prüfen.');}return parsed;}
  const parsed=messages.map(m=>parseSingleMail(m.body,{...options,sender:m.sender||options.sender,subject:m.subject}));
  const ready=p=>p.draft.date&&p.draft.people&&(p.draft.data.first||p.draft.data.last);
  let index=parsed.findIndex(ready);
@@ -53,6 +53,16 @@ export function parseMail(text,options={}){
   if(/Nachname|Vorname|(?:auf|unter) den? Namen|mein Name|ich heisse|ich heiße/i.test(messages[i].body))for(const key of ['first','last'])if(p.draft.data[key])draft.data[key]=p.draft.data[key];
  }
  if(new Set(parsed.filter(ready).map(p=>JSON.stringify([p.draft.date,p.draft.time,p.draft.people]))).size>1)issues.push('Mehrere Angaben im Mailverlauf: unterschiedliche Reservationen oder Änderungen. Bitte prüfen.');
+ const externalEmail=value=>{const addresses=String(value||'').match(/[A-Z0-9.!#$%&'*+\/=?^_`{|}~-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi)||[];return addresses.find(address=>!/@(?:fonduehuesli\.ch|artoffondue\.ch|streetfooddays\.ch|[^@]*resend\.app)$/i.test(address))||'';};
+ const customerEmail=externalEmail(options.sender)||externalEmail(source.draft.data.email)||messages.map(m=>externalEmail(m.recipients)).find(Boolean)||'';
+ draft.is_reply=true;
+ draft.thread_references=parsed.slice(1,21).map((p,i)=>({date:p.draft.date,time:p.draft.time,people:p.draft.people,data:{first:p.draft.data.first||'',last:p.draft.data.last||'',email:externalEmail(p.draft.data.email)||externalEmail(messages[i+1].recipients)||customerEmail}})).filter(p=>p.date);
+ if(!externalEmail(draft.data.email)&&customerEmail)draft.data.email=customerEmail;
+ const internalSender=value=>/@(?:fonduehuesli\.ch|artoffondue\.ch|streetfooddays\.ch|[^@]*resend\.app)/i.test(value||'');
+ const customerCommentField=body=>/(?:^|\n)\s*(?:Bemerkungen|Kommentar|Wünsche|Wuensche|Nachricht|Mitteilung)\s*:/i.test(body||'');
+ if(internalSender(messages[index].sender)&&!customerCommentField(messages[index].body))draft.data.comment='';
+ if(parsed[0].draft.data.comment&&(!internalSender(messages[0].sender)||customerCommentField(messages[0].body)))draft.data.comment=[...new Set([draft.data.comment,parsed[0].draft.data.comment].filter(Boolean))].join('\n');
+ issues.push('Antwort im Mailverlauf: bestehende Reservation zuordnen; Änderungen manuell prüfen.');
  const all=[...new Set(issues)].filter(s=>!(/Datum fehlt/.test(s)&&draft.date||/Uhrzeit fehlt/.test(s)&&draft.time||/Personenzahl fehlt/.test(s)&&draft.people||/Name fehlt/.test(s)&&(draft.data.first||draft.data.last)));
  if(/\b(stornier\w*|absage|änderung|aenderung|verschieb\w*|annullier\w*)\b/i.test(messages[0].body))all.push('Mögliche Änderung oder Stornierung: manuell prüfen.');
  return {draft,issues:[...new Set(all)],complete:false};
@@ -66,5 +76,5 @@ export async function verifySignature(payload,headers,secret,now=Date.now()/1000
 }
 
 export function reservationCandidate(parsed){
- const d=parsed.draft;return !!(d.date&&d.people&&(d.data.last||d.data.first)&&!parsed.issues.some(s=>/Mehrere Angaben|Änderung|Stornierung|gekürzt/.test(s)));
+ const d=parsed.draft;return !d.is_reply&&!!(d.date&&d.people&&(d.data.last||d.data.first)&&!parsed.issues.some(s=>/Mehrere Angaben|Änderung|Stornierung|gekürzt/.test(s)));
 }

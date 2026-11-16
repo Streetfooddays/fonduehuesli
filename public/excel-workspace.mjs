@@ -1,3 +1,5 @@
+import {resolveRequestBooking} from './request-matching.mjs';
+import {compactRequestHTML} from './request-summary.mjs';
 import {parseMail} from './mail-core.mjs';
 import {renderExcelOverview} from './excel-overview.mjs';
 import {guest,escapeHTML as e} from './core.mjs';
@@ -5,19 +7,8 @@ import {floorPlan,setFloorLayouts,tableAssignments} from './floor-plan.mjs';
 import {bindTablePicker,bindTableDragging} from './floor-interactions.mjs';
 import {tableGroupAssignment} from './table-groups.mjs';
 const validDay=d=>/^\d{4}-\d{2}-\d{2}$/.test(d||'');
-const norm=s=>String(s||'').normalize('NFKD').replace(/\p{M}/gu,'').toLowerCase().replace(/[^\p{L}\d]/gu,'');
-export function matchingRequestBooking(mail,rows){
- if(mail.reservation_id)return rows.find(r=>r.id===mail.reservation_id&&!r.deleted_at)||null;
- const d=mail.draft||{},name=d.data||{},keys=[norm((name.first||'')+(name.last||'')),norm((name.last||'')+(name.first||''))].filter(Boolean);
- if(!d.date||!d.people||!keys.length)return null;
- const matches=rows.filter(r=>{const n=guest(r);return !r.deleted_at&&r.status!=='Storniert'&&r.date===d.date&&Number(r.people)===Number(d.people)&&(r.time||'')===(d.time||'')&&[norm((n.first||'')+(n.last||'')),norm((n.last||'')+(n.first||''))].some(k=>keys.includes(k));});
- return matches.length===1?matches[0]:null;
-}
-export function relatedRequestBooking(mail,rows){
- if(mail.reservation_id||matchingRequestBooking(mail,rows))return null;
- const d=mail.draft||{},n=d.data||{},keys=[norm((n.first||'')+(n.last||'')),norm((n.last||'')+(n.first||''))].filter(Boolean);
- const matches=rows.filter(r=>{const g=guest(r);return !r.deleted_at&&r.status!=='Storniert'&&r.date===d.date&&[norm((g.first||'')+(g.last||'')),norm((g.last||'')+(g.first||''))].some(k=>keys.includes(k));});return matches.length===1?matches[0]:null;
-}
+export function matchingRequestBooking(mail,rows){const match=resolveRequestBooking(mail,rows);return ['linked','exact'].includes(match.kind)?match.booking:null;}
+export function relatedRequestBooking(mail,rows){const match=resolveRequestBooking(mail,rows);return match.kind==='related'?match.booking:null;}
 export function requestSelection(mail,rows){
  const booking=matchingRequestBooking(mail,rows),draft=mail.draft||{};
  return {kind:'mail',mailId:mail.id,booking,rowId:booking?.id||null,day:booking?.date||draft.date||'',time:booking?.time||draft.time||'',people:booking?.people??draft.people??0,tables:booking?.table_no||'',name:[(booking?guest(booking):draft.data)?.first,(booking?guest(booking):draft.data)?.last].filter(Boolean).join(' ')||'Anfrage ohne Namen'};
@@ -26,7 +17,7 @@ export function oldestRequestsFirst(items){return [...items].sort((a,b)=>(Date.p
 export function enrichRequestDraft(mail,body){
  const parsed=parseMail(body,{receivedAt:mail.received_at,sender:mail.sender,subject:mail.subject}),old=mail.draft||{},data={...(old.data||{})};
  for(const [key,value] of Object.entries(parsed.draft.data||{}))if(value)data[key]=value;
- const draft={...old,data};for(const key of ['date','time','people'])if(parsed.draft[key])draft[key]=parsed.draft[key];
+ const draft={...old,data,is_reply:parsed.draft.is_reply||old.is_reply,thread_references:parsed.draft.thread_references||old.thread_references||[]};for(const key of ['date','time','people'])if(parsed.draft[key])draft[key]=parsed.draft[key];
  const missingFixed=issue=>/Datum fehlt/.test(issue)&&draft.date||/Uhrzeit fehlt/.test(issue)&&draft.time||/Personenzahl fehlt/.test(issue)&&draft.people||/Name fehlt/.test(issue)&&(data.first||data.last);
  const issues=[...new Set([...(mail.issues||[]).filter(i=>!missingFixed(i)),...parsed.issues.filter(i=>!missingFixed(i))])];
  return {...mail,draft,issues};
@@ -87,18 +78,18 @@ export function renderExcelWorkspace(root,api){
   $('#wb-request-select').value=selectedMail;
   const ctx=requestSelection(mail,s.rows),d=ctx.booking?guest(ctx.booking):mail.draft?.data||{},contentSignature=JSON.stringify([mail.id,mail.state,mail.draft,ctx.booking?.revision,[...s.outbox,...(s.replies||[])].map(o=>[o.id,o.state])]);
   if(displayedMail===mail.id&&$('#wb-request-content').dataset.signature===contentSignature)return;
-  displayedMail=mail.id;$('#wb-request-content').dataset.signature=contentSignature;
+  const originalOpen=displayedMail===mail.id&&!!$('#wb-request-content .request-original')?.open;displayedMail=mail.id;$('#wb-request-content').dataset.signature=contentSignature;
   const linked=!!mail.reservation_id,duplicate=!linked&&!!ctx.booking,related=relatedRequestBooking(mail,s.rows),queued=s.outbox.find(o=>o.state!=='sent'&&(o.mail_id===mail.id||o.reservation_id===ctx.booking?.id));
-  $('#wb-request-content').innerHTML=`<h3>${e(mail.subject||'Ohne Betreff')}</h3><p class="wb-mail-meta">${e(mail.sender)}<br>${e(new Intl.DateTimeFormat('de-CH',{dateStyle:'short',timeStyle:'short',timeZone:'Europe/Zurich'}).format(new Date(mail.received_at)))}</p><p><strong>${e(ctx.name)}</strong> · ${e(ctx.day||'Datum offen')} · ${e(ctx.time||'Zeit offen')} · ${e(ctx.people||'?')} Personen<br>Bestätigung an: <strong>${e(d.email||'E-Mail-Adresse ergänzen')}</strong></p>${duplicate?'<p class="hint">Passender Eintrag bereits vorhanden. Beim Übernehmen wird die Anfrage damit verknüpft.</p>':related?'<p class="hint">Namensgleicher Eintrag am selben Tag gefunden; Uhrzeit oder Personenzahl weichen ab. Bitte vor der Übernahme prüfen.</p>':''}${mail.issues?.length?`<p class="wb-review">${mail.issues.map(e).join('<br>')}</p>`:''}<pre class="wb-original-mail">Mailtext wird geladen …</pre>`;
+  $('#wb-request-content').innerHTML=compactRequestHTML(mail,ctx.booking||related,{originalClass:'wb-original-mail',originalOpen})+(duplicate?'<p class="hint">Passender Eintrag bereits vorhanden. Beim Übernehmen wird die Anfrage damit verknüpft.</p>':related?'<p class="hint">Passende bestehende Reservation gefunden. Abweichende Angaben bitte prüfen.</p>':'')+(resolveRequestBooking(mail,s.rows).kind==='ambiguous'?'<p class="hint">Mehrere passende Reservationen gefunden. Bitte manuell zuordnen.</p>':'')+(mail.issues?.length?`<details class="wb-review"><summary>Prüfhinweise (${mail.issues.length})</summary>${mail.issues.map(e).join('<br>')}</details>`:'');
   if(ctx.booking&&((mail.draft?.date&&mail.draft.date!==ctx.booking.date)||(mail.draft?.time&&mail.draft.time!==ctx.booking.time)||(mail.draft?.people&&Number(mail.draft.people)!==Number(ctx.booking.people))))$('#wb-request-content').insertAdjacentHTML('beforeend',`<p class="hint">Neuere Angaben im Mail: ${e(mail.draft.date||'Datum offen')} · ${e(mail.draft.time||'Zeit offen')} · ${e(mail.draft.people||'?')} Personen. Bitte über «Angaben bearbeiten» prüfen.</p>`);
   const replies=(s.replies||[]).filter(r=>r.mail_id===mail.id),pendingReply=replies.find(r=>r.state!=='sent'),lastReply=replies.find(r=>r.state==='sent');
   if(lastReply)$('#wb-request-content').insertAdjacentHTML('beforeend',`<p class="muted">Antwort bereits gesendet${lastReply.sent_at?' · '+e(new Intl.DateTimeFormat('de-CH',{dateStyle:'short',timeStyle:'short',timeZone:'Europe/Zurich'}).format(new Date(lastReply.sent_at))):''}. Die Anfrage bleibt offen.</p>`);
   const showBooking=ctx.booking||related;
-  $('#wb-request-actions').innerHTML=`${!linked?`<button type="button" class="secondary small" id="wb-transfer">${duplicate?'Mit Eintrag verknüpfen':related?'Abweichung prüfen':'In Liste übernehmen'}</button>`:''}<button type="button" class="secondary small" id="wb-show-booking" title="${showBooking?'Bestehenden Eintrag in der Excel-Liste anzeigen':'Anfrage als Vorschau anzeigen, ohne eine Reservation anzulegen'}">In der Liste anzeigen</button><button type="button" class="small" id="wb-confirm" ${queued?'disabled':''}>Bestätigen & Mail senden</button><button type="button" class="secondary small" id="wb-edit-reply" ${queued?'disabled':''}>Antwort bearbeiten</button><button type="button" class="secondary small" id="wb-reply-only" ${pendingReply?'disabled':''}>Nur antworten</button>${pendingReply?'<button type="button" class="secondary small" id="wb-retry-reply">Antwortversand erneut versuchen</button>':''}<button type="button" class="quiet small" id="wb-edit-request">Angaben bearbeiten</button><button type="button" class="quiet small" id="wb-ignore" ${queued?'disabled':''} title="Nur die Anfrage ablegen. Die Reservation bleibt erhalten. Es wird keine E-Mail versendet.">Ignorieren</button>${queued?'<button type="button" class="small" id="wb-retry">Versand erneut versuchen</button>':''}`;
+  $('#wb-request-actions').innerHTML=`${!linked?`<button type="button" class="secondary small" id="wb-transfer">${duplicate?'Mit Eintrag verknüpfen':related?'Abweichung prüfen':'In Liste übernehmen'}</button>`:''}<button type="button" class="secondary small" id="wb-show-booking" title="${showBooking?'Bestehenden Eintrag in der Excel-Liste anzeigen':'Anfrage als Vorschau anzeigen, ohne eine Reservation anzulegen'}">In der Liste anzeigen</button><button type="button" class="small" id="wb-confirm" ${queued?'disabled':''}>${related?'Bestehende Reservation prüfen':'Bestätigen & Mail senden'}</button><button type="button" class="secondary small" id="wb-edit-reply" ${queued?'disabled':''}>Antwort bearbeiten</button><button type="button" class="secondary small" id="wb-reply-only" ${pendingReply?'disabled':''}>Nur antworten</button>${pendingReply?'<button type="button" class="secondary small" id="wb-retry-reply">Antwortversand erneut versuchen</button>':''}<button type="button" class="quiet small" id="wb-edit-request">Angaben bearbeiten</button><button type="button" class="quiet small" id="wb-ignore" ${queued?'disabled':''} title="Nur die Anfrage ablegen. Die Reservation bleibt erhalten. Es wird keine E-Mail versendet.">Ignorieren</button>${queued?'<button type="button" class="small" id="wb-retry">Versand erneut versuchen</button>':''}`;
   $('#wb-reply-only').onclick=()=>{if(actionAllowed())api.replyOnly(mail.id);};if(pendingReply)$('#wb-retry-reply').onclick=async()=>{if(!actionAllowed())return;try{await api.retryReply(pendingReply.id);}catch(err){message(err.message);}};
   if(queued)$('#wb-retry').onclick=async()=>{if(!actionAllowed())return;try{await api.retryOutbox(queued.id);}catch(err){message(err.message);}};
   if($('#wb-transfer'))$('#wb-transfer').onclick=()=>runRequest('transfer');
-  $('#wb-show-booking').onclick=()=>{if(busy)return;if(showBooking){if(!sheet.isDirty())sheet.replaceData(state().rows,state().outbox);if(!sheet.focusReservation(showBooking.id)){message('Bitte zuerst die geänderten Excel-Zeilen speichern, bevor die Woche gewechselt wird.');return;}sheet.setCurrentRequest(showBooking.id);message(related?'Namensgleicher Eintrag angezeigt. Abweichende Angaben bitte prüfen.':'Reservation in der Liste angezeigt.');}else{sheet.showRequestPreview(mail);sheet.setCurrentRequest('request-preview-'+mail.id,{scroll:true});choose(requestSelection(mail,state().rows));message('Anfrage als Vorschau angezeigt. Noch keine Reservation angelegt.');}};
+  $('#wb-show-booking').onclick=()=>{if(busy)return;if(showBooking){if(!sheet.isDirty())sheet.replaceData(state().rows,state().outbox);if(!sheet.focusReservation(showBooking.id)){message('Bitte zuerst die geänderten Excel-Zeilen speichern, bevor die Woche gewechselt wird.');return;}sheet.setCurrentRequest(showBooking.id);message(related?'Passende bestehende Reservation angezeigt. Abweichende Angaben bitte prüfen.':'Reservation in der Liste angezeigt.');}else{sheet.showRequestPreview(mail);sheet.setCurrentRequest('request-preview-'+mail.id,{scroll:true});choose(requestSelection(mail,state().rows));message('Anfrage als Vorschau angezeigt. Noch keine Reservation angelegt.');}};
   $('#wb-ignore').onclick=()=>runRequest('ignore');$('#wb-confirm').onclick=()=>runRequest('confirm');$('#wb-edit-reply').onclick=()=>runRequest('edit');$('#wb-edit-request').onclick=()=>{if(actionAllowed())api.editRequest(mail.id);};
   const token=++bodyToken;
   (async()=>{try{

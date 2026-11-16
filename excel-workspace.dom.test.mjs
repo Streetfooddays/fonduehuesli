@@ -114,3 +114,15 @@ test('overcapacity is a visible warning and does not stop Excel autosave',async 
  const first=tr.querySelector('[name=first]');first.value='Updated';tr.oninput();tr.onkeydown({target:first,key:'Tab',preventDefault(){}});await tick();await tick();
  assert.equal(calls.filter(c=>c[0]==='save').length,1);assert.equal(calls[0][1].people,7);assert.equal(calls[0][1].tableNo,'7, 77, 777');assert.match(tr.querySelector('.sheet-table-capacity').textContent,/7 Personen bei 6/);
 });
+
+test('request panel shows compact customer remarks while retaining the full original in a closed disclosure',async t=>{
+ const body='Nachname: Muster\nVorname: Anna\nDatum: 01.01.2099\nUhrzeit: 18:00\nAnzahl Personen: 4\nE-Mail: anna@example.invalid\nTelefon: 01234\nBemerkungen: Ein Kinderstuhl bitte';
+ const m=request('compact');const {document,calls}=mount(t,{inbox:[m],body});await tick();await tick();
+ const panel=document.querySelector('#wb-request-content');assert.match(panel.querySelector('.request-summary').textContent,/Kinderstuhl/);assert.match(panel.querySelector('.request-summary').textContent,/01234/);assert.equal(panel.querySelector('.request-original').hasAttribute('open'),false);assert.equal(panel.querySelector('.wb-original-mail').textContent,body);assert.deepEqual(calls,[]);
+});
+test('a changed reply highlights the original reservation without creating another row',async t=>{
+ const existing={...row('original','2099-01-01'),people:4};const m=request('changed');m.subject='Re: Reservation';
+ const body='Wir kommen nun mit 6 Personen.\nGruss Anna Muster\n\n-----Original Message-----\nVon: Anna Muster <anna@example.invalid>\n\nNachname: Muster\nVorname: Anna\nDatum: 01.01.2099\nUhrzeit: 18:00\nAnzahl Personen: 4\nE-Mail: anna@example.invalid';
+ const {document,state,calls}=mount(t,{rows:[existing],inbox:[m],body});await tick();await tick();
+ assert.equal(document.querySelector('.sheet-current-request').dataset.sheetId,'original');assert.equal(document.querySelector('#wb-transfer').textContent,'Abweichung prüfen');assert.equal(document.querySelector('#wb-confirm').textContent,'Bestehende Reservation prüfen');assert.equal(state.rows.length,1);assert.deepEqual(calls,[]);
+});

@@ -5,7 +5,7 @@ import {gondolaAvailability,gondolaRowClass,gondolaTablesReleased} from './gondo
 import {renderExcelWorkspace,matchingRequestBooking,relatedRequestBooking} from './excel-workspace.mjs';
 import {todayInZurich} from './day-start.mjs';
 import {tableAssignmentState} from './table-assignment-state.mjs';
-import {tableGroupHint} from './table-groups.mjs';
+import {tableGroupHint,tableGroupWarning} from './table-groups.mjs';
 import {compareDayReservations} from './day-sort.mjs';
 import {tableNumberList} from './table-number-list.mjs';
 import {saveArrival} from './arrival-save.mjs';
@@ -326,7 +326,7 @@ function refreshTableAssignmentColors(){
   const state=tableAssignmentState(r,rows,input.value,input.value.trim()!==(r.table_no||'').trim());
   input.dataset.tableState=state.state;input.title=state.message;input.setAttribute('aria-description',state.message);
   let feedback=input.parentElement.querySelector('.table-assignment-feedback');if(!feedback){feedback=document.createElement('small');feedback.className='table-assignment-feedback';feedback.setAttribute('role','status');input.parentElement.append(feedback);}
-  feedback.textContent=state.state==='conflict'?state.message:'';
+  feedback.textContent=[state.state==='conflict'?state.message:'',tableGroupWarning(input.value,r.people)].filter(Boolean).join(' ');
  });
 }
 

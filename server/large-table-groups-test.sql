@@ -10,7 +10,7 @@ begin
    assert private.table_group_assignment(array_to_string(cluster,', '),people)=expected,'Large group reduction differs';
   end loop;
  end loop;
- blocked:=false;begin perform private.table_group_assignment('20',12);exception when raise_exception then blocked:=true;end;assert blocked,'Maximum group size is eleven';
+ assert private.table_group_assignment('20',12)='20, 120, 220, 130','Manual overcapacity uses all available tables';
  assert private.table_group_assignment('20, 21',14)='20, 21','Mixed groups remain manual';
  assert private.table_group_assignment('5',5)='5, 55, 555','Small group rules retained';
  assert private.table_group_assignment('G1',4)='G1','Gondola unchanged';

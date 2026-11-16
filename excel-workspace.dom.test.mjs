@@ -107,3 +107,10 @@ test('a failed standalone reply retries the frozen answer with the same ID inste
  dialog.querySelector('[name=body]').value='Bitte melde uns deine Ankunftszeit.';dialog.querySelector('[name=recipientReviewed]').checked=true;await dialog.querySelector('[data-reply-form]').onsubmit({preventDefault(){}});
  assert(dialog.querySelector('[name=body]').disabled);assert.equal(dialog.querySelector('[data-reply-preview]').textContent,'Saved response');assert.equal(dialog.querySelector('[data-reply-retry]').hidden,false);await dialog.querySelector('[data-reply-retry]').onclick();assert.deepEqual(retryIds,[payload.id]);assert.equal(done,1);
 });
+
+test('overcapacity is a visible warning and does not stop Excel autosave',async t=>{
+ const booking={...row('manual-capacity'),people:7,table_no:'7, 77, 777'};const {document,calls}=mount(t,{rows:[booking]});
+ const tr=document.querySelector('[data-sheet-id="manual-capacity"]');assert.match(tr.querySelector('.sheet-table-capacity').textContent,/7 Personen bei 6/);
+ const first=tr.querySelector('[name=first]');first.value='Updated';tr.oninput();tr.onkeydown({target:first,key:'Tab',preventDefault(){}});await tick();await tick();
+ assert.equal(calls.filter(c=>c[0]==='save').length,1);assert.equal(calls[0][1].people,7);assert.equal(calls[0][1].tableNo,'7, 77, 777');assert.match(tr.querySelector('.sheet-table-capacity').textContent,/7 Personen bei 6/);
+});

@@ -6,3 +6,5 @@
 
 .excel-table th{white-space:normal;overflow-wrap:anywhere}
 .excel-table td{overflow-wrap:anywhere}
+
+.sheet-table-capacity{display:block;font-size:.7rem;line-height:1.35;color:#92510d;white-space:normal;overflow-wrap:anywhere}.sheet-table-capacity:empty{display:none}

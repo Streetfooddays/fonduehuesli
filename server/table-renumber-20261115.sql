@@ -32,14 +32,12 @@ begin
  for base in 5..8 loop
   cluster:=array[base::text,repeat(base::text,2),repeat(base::text,3)];
   if base::text=any(selected) and selected<@cluster then
-   if people>6 then raise exception 'Die Tischgruppe % / % / % bietet maximal 6 Personen Platz. Bitte weitere Tische zuweisen.',cluster[1],cluster[2],cluster[3];end if;
-   return array_to_string(cluster[1:((people+1)/2)],', ');
+   return array_to_string(cluster[1:least(3,(people+1)/2)],', ');
   end if;
  end loop;
  for base in 20..23 loop
   cluster:=array[base::text,(base+100)::text,(base+200)::text,case when base=20 then '130' else (base+109)::text end];
   if base::text=any(selected) and selected<@cluster then
-   if people>11 then raise exception 'Die Tischgruppe % bietet maximal 11 Personen Platz. Bitte weitere Tische zuweisen.',array_to_string(cluster,' / ');end if;
    return array_to_string(cluster[1:(case when people<=4 then 1 when people<=6 then 2 when people<=8 then 3 else 4 end)],', ');
   end if;
  end loop;

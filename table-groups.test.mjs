@@ -8,7 +8,7 @@ test('all four groups expand and contract in pairs of two guests',()=>{
 test('other tables, mixed groups, unclear assignments and empty zero-person assignments are preserved',()=>{
  for(const value of ['4','G1','5, 6','5, 21','55','5 (55?)',''])assert.equal(tableGroupAssignment(value,4),value);
  assert.equal(tableGroupAssignment('5, 55',0),'5, 55');assert.equal(tableGroupAssignment('Tisch 6 und 66',5),'6, 66, 666');
- assert.throws(()=>tableGroupAssignment('7',7),/maximal 6 Personen/);assert.match(tableGroupHint('5',3),/5, 55/);
+ assert.equal(tableGroupAssignment('7',7),'7, 77, 777');assert.match(tableGroupHint('7',7),/7 Personen bei 6/);assert.match(tableGroupHint('5',3),/5, 55/);
 });
 
 test('large groups use 4, 6, 8 and 11-guest limits with the confirmed fourth-table mapping',()=>{
@@ -18,5 +18,5 @@ test('large groups use 4, 6, 8 and 11-guest limits with the confirmed fourth-tab
   assert.equal(tableGroupAssignment(group.join(', '),people),group.slice(0,n).join(', '));
  }
  assert.equal(tableGroupAssignment('20',10),'20, 120, 220, 130');assert.equal(tableGroupAssignment('23',11),'23, 123, 223, 132');
- assert.throws(()=>tableGroupAssignment('21',12),/maximal 11/);assert.equal(tableGroupAssignment('20, 21',14),'20, 21');
+ assert.equal(tableGroupAssignment('21',12),'21, 121, 221, 130');assert.match(tableGroupHint('21',12),/12 Personen bei 11/);assert.equal(tableGroupAssignment('20, 21',14),'20, 21');
 });

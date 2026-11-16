@@ -1,3 +1,4 @@
+import {tableGroupWarning} from './table-groups.mjs';
 import {gondolaRowClass,gondolaAvailability} from './gondolas.mjs';
 import {reservationRemarks} from './day-list.mjs';
 import {cancellationsLast,reservationRank} from './reservation-order.mjs';
@@ -89,15 +90,16 @@ export function renderExcelOverview(root,{rows,outbox=[],date,save,onSaved,onDat
      if(!r){button.insertAdjacentHTML('afterend','<button type="button" class="quiet small sheet-delete" data-sheet-delete aria-label="Reservation löschen" title="Reservation löschen">🗑</button>');tr.parentElement.insertAdjacentHTML('beforeend',rowHTML(null,saved.date));bindRows();}
      if(dirtyAgainst(tr,saved)){tr.dataset.dirty='true';feedback.textContent='Weitere Änderungen noch nicht gespeichert';}else{delete tr.dataset.dirty;feedback.textContent='Gespeichert';tr.querySelector('.sheet-override').hidden=true;feedback.setAttribute('role','status');}
      const focused=root.contains(document.activeElement)?document.activeElement:null;placeCancelledLast(tr.parentElement);if(focused&&document.activeElement!==focused)focused.focus?.({preventScroll:true});
-     updateTotals();paintCurrentRequest();onSelectRow(rowContext(tr));onReservationChanged(saved);if(!automatic)notice('Reservation gespeichert.');
+     paintTableCapacity(tr);updateTotals();paintCurrentRequest();onSelectRow(rowContext(tr));onReservationChanged(saved);if(!automatic)notice('Reservation gespeichert.');
     }catch(err){feedback.textContent=err.message;feedback.setAttribute('role','alert');if(r||!automatic||tr.dataset.saving==='true')tr.querySelector('.sheet-override').hidden=false;job.again=false;break;}
     finally{button.disabled=false;delete tr.dataset.saving;}
    }while(job.again);
   })().finally(()=>{job.running=false;});return job.promise;
  }
+ function paintTableCapacity(tr){const input=tr.querySelector('[name=tableNo]'),people=tr.querySelector('[name=people]');if(!input||!people)return;let hint=tr.querySelector('.sheet-table-capacity');if(!hint){hint=document.createElement('small');hint.className='sheet-table-capacity';input.parentElement.append(hint);}hint.textContent=tableGroupWarning(input.value,people.value);}
  function bindRows(){root.querySelectorAll('tr[data-sheet-id]:not([data-sheet-preview])').forEach(tr=>{
-  tr.onclick=()=>selectRow(tr);tr.onfocusin=()=>selectRow(tr);
-  tr.oninput=()=>{tr.dataset.dirty='true';tr.querySelector('.sheet-feedback').textContent='Noch nicht gespeichert';selectRow(tr);};
+  paintTableCapacity(tr);tr.onclick=()=>selectRow(tr);tr.onfocusin=()=>selectRow(tr);
+  tr.oninput=()=>{paintTableCapacity(tr);tr.dataset.dirty='true';tr.querySelector('.sheet-feedback').textContent='Noch nicht gespeichert';selectRow(tr);};
   tr.onkeydown=ev=>{if(!ev.target?.matches('input,textarea,select')||ev.target.disabled||ev.isComposing)return;if(ev.key==='Tab'||ev.key==='Enter'&&!ev.shiftKey){if(ev.key==='Enter')ev.preventDefault();void saveRow(tr,true);}};
   tr.querySelector('[data-sheet-save]').onclick=()=>saveRow(tr,false);const trash=tr.querySelector('[data-sheet-delete]');if(trash)trash.onclick=ev=>{ev.stopPropagation();const booking=rows.find(r=>r.id===tr.dataset.sheetId);if(booking)onDelete(booking.id);};
  });}
@@ -110,6 +112,6 @@ export function renderExcelOverview(root,{rows,outbox=[],date,save,onSaved,onDat
   showRequestPreview(mail){requestPreview=mail;paintRequestPreview();paintCurrentRequest();},
   setCurrentRequest(id,{scroll=false}={}){currentRequestId=id||null;const r=rows.find(r=>r.id===id)||(requestPreview&&id==='request-preview-'+requestPreview.id?{date:requestPreview.draft?.date}:null);if(r?.date&&scroll)this.navigate(r.date);paintCurrentRequest();const tr=[...root.querySelectorAll('[data-sheet-id]')].find(tr=>tr.dataset.sheetId===id);if(tr&&scroll)tr.scrollIntoView({block:'center',behavior:'smooth'});return !!tr;},
   focusReservation(id){const r=rows.find(r=>r.id===id);if(!r||!this.navigate(r.date))return false;const tr=[...root.querySelectorAll('[data-sheet-id]')].find(tr=>tr.dataset.sheetId===id);if(tr){selectRow(tr);tr.scrollIntoView({block:'center',behavior:'smooth'});return true;}return false;},
-  applyTable(id,value,saved=null){const tr=[...root.querySelectorAll('[data-sheet-id]')].find(tr=>tr.dataset.sheetId===id);if(saved){const i=rows.findIndex(r=>r.id===id);if(i>=0)rows[i]=saved;}if(tr){if(saved)tr.classList.toggle('gondola-reservation',!!gondolaRowClass(saved));tr.querySelector('[name=tableNo]').value=value;if(!saved){tr.dataset.dirty='true';tr.querySelector('.sheet-feedback').textContent='Tischwahl noch nicht gespeichert';}selectRow(tr);}updateTotals();},
+  applyTable(id,value,saved=null){const tr=[...root.querySelectorAll('[data-sheet-id]')].find(tr=>tr.dataset.sheetId===id);if(saved){const i=rows.findIndex(r=>r.id===id);if(i>=0)rows[i]=saved;}if(tr){if(saved)tr.classList.toggle('gondola-reservation',!!gondolaRowClass(saved));tr.querySelector('[name=tableNo]').value=value;if(!saved){tr.dataset.dirty='true';tr.querySelector('.sheet-feedback').textContent='Tischwahl noch nicht gespeichert';}paintTableCapacity(tr);selectRow(tr);}updateTotals();},
   dispose:()=>{railObservers.forEach(o=>o.disconnect());window.removeEventListener('beforeunload',beforeUnload);}};
 }

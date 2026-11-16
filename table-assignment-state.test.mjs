@@ -12,7 +12,7 @@ test('lunch and dinner are independent, but unknown time blocks both',()=>{
 });
 test('typing previews side tables from the group rules and clears conflicts when choosing another group',()=>{
  const own={...row('own',''),people:4},other=row('other','55');assert.equal(tableAssignmentState(own,[other],'5',true).state,'conflict');assert.equal(tableAssignmentState(own,[other],'6',true).state,'assigned');assert.equal(tableAssignmentState(own,[other],'',true).state,'unassigned');
- assert.equal(tableAssignmentState({...own,people:8},[],'5',true).state,'unassigned');
+ assert.equal(tableAssignmentState({...own,people:8},[],'5',true).state,'assigned');assert.equal(tableAssignmentState({...own,people:8},[row('occupied','555')],'5',true).state,'conflict');
 });
 test('stored assignments are not expanded retroactively and explicit off-plan numbers work',()=>{
  assert.equal(tableAssignmentState({...row('own','5'),people:4},[row('other','55')]).state,'assigned');assert.equal(tableAssignmentState(row('own','99'),[row('other','99')]).state,'conflict');

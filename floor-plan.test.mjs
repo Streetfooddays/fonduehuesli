@@ -57,4 +57,4 @@ test('renumbered tables retain physical positions without duplicate numbers',()=
 
 test('waiting reservations never occupy a table even if they retain a proposed assignment',()=>{assert.equal(floorOccupancy([booking('w','30','Warteliste')],day).occupancy['30'].state,'free');});
 
-test('table tooltips show ten places for tables 20, 121 and 124',()=>{const html=floorPlan([],day);for(const number of ['20','121','124'])assert(html.includes(`<title>Tisch ${number} · bis 10 Personen`));});
+test('table 20 tooltip shows four places and obsolete ten-place notes are absent',()=>{const html=floorPlan([],day);assert(html.includes('<title>Tisch 20 · bis 4 Personen'));assert(!html.includes('bis 10 Personen'));});

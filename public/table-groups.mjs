@@ -1,7 +1,7 @@
 export const TABLE_GROUPS=[5,6,7,8].map(n=>[String(n),String(n).repeat(2),String(n).repeat(3)]);
-export const LARGE_TABLE_GROUPS=[['20','120','220','130'],['21','121','221','130'],['22','122','222','131'],['23','123','223','132']];
-export const TABLE_CAPACITY_OVERRIDES=Object.freeze({'20':10,'121':10,'124':10});
-const rules=[...TABLE_GROUPS.map(tables=>({tables,limits:[2,4,6]})),...LARGE_TABLE_GROUPS.map(tables=>{let total=0;return {tables,limits:tables.map((table,i)=>total+=(TABLE_CAPACITY_OVERRIDES[table]??[4,2,2,3][i]))};})];
+export const LARGE_TABLE_GROUPS=[['20','120','220'],['21','121','221','130'],['22','122','222','131'],['23','123','223','132']];
+export const TABLE_CAPACITY_OVERRIDES=Object.freeze({'20':4});
+const rules=[...TABLE_GROUPS.map(tables=>({tables,limits:[2,4,6]})),...LARGE_TABLE_GROUPS.map((tables,i)=>({tables,limits:i===0?[4,8,11]:[4,6,8,11]}))];
 function matchingRule(value){
  const text=String(value||'').trim().toUpperCase().replace(/^TISCHE?\s*/,'').replace(/\s+UND\s+/g,',');if(!/^[\d\s,;/+&]+$/.test(text))return null;
  const selected=[...new Set(text.split(/[\s,;/+&]+/).filter(Boolean))];return rules.find(g=>selected.includes(g.tables[0])&&selected.every(n=>g.tables.includes(n)))||(selected.length===1&&TABLE_CAPACITY_OVERRIDES[selected[0]]?{tables:selected,limits:[TABLE_CAPACITY_OVERRIDES[selected[0]]]}:null);

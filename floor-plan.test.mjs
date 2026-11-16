@@ -56,3 +56,5 @@ test('arrival colors all assigned tables in every scope of its day and reverses 
 test('renumbered tables retain physical positions without duplicate numbers',()=>{for(const [number,x,y] of [['30',386.92,525.27],['130',326.44,525.27],['31',388.17,427.61],['131',327.68,427.61],['32',390.87,343.19],['132',330.38,343.19]]){const t=TABLES.find(t=>t.number===number);assert.equal(t.x,x);assert.equal(t.y,y);}assert(!TABLE_NUMBERS.includes('33'));assert(!TABLE_NUMBERS.includes('133'));});
 
 test('waiting reservations never occupy a table even if they retain a proposed assignment',()=>{assert.equal(floorOccupancy([booking('w','30','Warteliste')],day).occupancy['30'].state,'free');});
+
+test('table tooltips show ten places for tables 20, 121 and 124',()=>{const html=floorPlan([],day);for(const number of ['20','121','124'])assert(html.includes(`<title>Tisch ${number} · bis 10 Personen`));});

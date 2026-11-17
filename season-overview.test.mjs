@@ -28,3 +28,15 @@ test('effective revenue field saves as a number through the same guarded field A
  await renderSeasonOverview(root,{rows:[b('a','2026-11-11','18:00',2)],current:'2026-11-16',req:async()=>[],rpc:async(name,{p})=>{saved=p;return {date:p.date,values:{[p.key]:p.value}};},notice:()=>{},onDate:()=>{}});
  const input=root.querySelector('[data-overview-day="2026-11-11"][data-overview-key="effective_revenue"]');input.value='180,50';input.dispatchEvent(new window.Event('change',{bubbles:true}));await new Promise(r=>setTimeout(r,0));assert.equal(saved.value,180.5);assert.equal(saved.key,'effective_revenue');assert.equal(saved.previous,null);assert(root.querySelector('.so-month-totals').textContent.includes('180.50'));delete globalThis.document;
 });
+
+test('cash is revenue minus noncash payments, reconciles monthly and preserves stored inputs',()=>{
+ const ledger=[{date:'2026-11-11',values:{effective_revenue:1000,kk:600.1,twint:200.2,rechnung:100.3,cash:999,tg:50}},{date:'2026-11-12',values:{effective_revenue:0,kk:10}},{date:'2026-12-01',values:{effective_revenue:500,kk:200,twint:100,rechnung:50}}];
+ const before=JSON.stringify(ledger),summary=overviewSummary([],ledger,2026),nov=summary.months[0],dec=summary.months[1];
+ assert.equal(nov.days.find(d=>d.date==='2026-11-11').values.cash,99.4);assert.equal(nov.days.find(d=>d.date==='2026-11-12').values.cash,-10);assert.equal(nov.values.cash,89.4);assert.equal(dec.values.cash,150);assert.equal(summary.total.values.cash,239.4);assert.equal(JSON.stringify(ledger),before);
+ const {document}=parseHTML(overviewHTML(summary));const row=document.querySelector('[data-overview-date="2026-11-11"]');assert.equal(row.querySelector('[data-overview-cash]').textContent,'99.40');assert.equal(row.querySelector('[data-overview-key="cash"]'),null);for(const key of ['effective_revenue','kk','twint','rechnung','tg'])assert(row.querySelector(`[data-overview-key="${key}"]`));
+});
+test('cash updates after saving payments while preserving the next focused field',async()=>{
+ const {document,window}=parseHTML('<div id="root"></div>');globalThis.document=document;const root=document.querySelector('#root'),values={effective_revenue:1000,kk:600,twint:100,rechnung:50},calls=[];
+ await renderSeasonOverview(root,{rows:[],current:'2026-11-16',req:async()=>[{date:'2026-11-11',values:{...values}}],rpc:async(name,{p})=>{calls.push(p);values[p.key]=p.value;return {date:p.date,values:{...values}};},notice:()=>{},onDate:()=>{}});
+ const kk=root.querySelector('[data-overview-day="2026-11-11"][data-overview-key="kk"]'),next=root.querySelector('[data-overview-day="2026-11-11"][data-overview-key="twint"]');Object.defineProperty(document,'activeElement',{configurable:true,value:next});kk.value='700';kk.dispatchEvent(new window.Event('change',{bubbles:true}));await new Promise(r=>setTimeout(r,0));assert.equal(root.querySelector('[data-overview-cash="2026-11-11"]').textContent,'150.00');assert.equal(root.querySelector('[data-overview-day="2026-11-11"][data-overview-key="twint"]'),next);assert.deepEqual(calls.map(p=>p.key),['kk']);delete globalThis.document;
+});

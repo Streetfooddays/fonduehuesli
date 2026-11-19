@@ -112,7 +112,7 @@ export function renderExcelWorkspace(root,api){
    }else if(action==='transfer'){
     const booking=await api.transfer(id,tableValue);if(disposed)return;
     if(booking){const fresh=state();sheet.replaceData(fresh.rows,fresh.outbox);sheet.focusReservation(booking.id);message('In Liste übernommen. Es wurde keine E-Mail versendet.');drawRequests();drawPlan();}else message('Bitte die fehlenden oder unklaren Angaben im Formular prüfen.');
-   }else{await api.confirm(id,action==='edit',tableValue);if(!disposed)message(action==='edit'?'Bestätigung im Bearbeitungsfenster geöffnet.':'Bestätigung bearbeitet.');}
+   }else{const result=await api.confirm(id,action==='edit',tableValue);if(!disposed)message(result?.message||(result?.outcome==='error'?'Bestätigung konnte nicht abgeschlossen werden.':result?.outcome==='review'||action==='edit'?'Bitte die Angaben und die manuelle Freigabe im geöffneten Formular prüfen.':result?.outcome==='pending'?'Mailversand noch offen. Bitte Versandstatus prüfen.':'Bestätigung bearbeitet.'));}
   }catch(err){message(err.message);}finally{busy=false;if(!disposed){displayedMail=null;drawRequests();}}
  }
  function selectRequest(id){if(planInteracting||!actionAllowed()){$('#wb-request-select').value=selectedMail;return;}selectedMail=id;memo.mailId=selectedMail;displayedMail=null;drawRequests();const m=state().inbox.find(m=>m.id===selectedMail);if(m)choose(requestSelection(m,state().rows));}

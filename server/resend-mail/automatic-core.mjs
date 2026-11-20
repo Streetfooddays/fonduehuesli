@@ -1,7 +1,7 @@
-import {DEFAULT_BODY,DEFAULT_SIGNATURE,FROM,BANNER,validEmail} from './confirmation-core.mjs';
+import {DEFAULT_BODY,DEFAULT_SIGNATURE,FROM,BANNER,validEmail,votingCampaign} from './confirmation-core.mjs';
 export {FROM};
 const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-export function automaticMessage(context){
+export function automaticMessage(context,now=new Date()){
  const r=context.reservation,d=typeof r.data==='string'?JSON.parse(r.data):r.data||{},s=context.settings||{};
  const name=String(d.first||d.last||'').trim();
  if(!name||name.length>200||/[\r\n]/.test(name)||!validEmail(d.email)||!/^\d{4}-\d{2}-\d{2}$/.test(r.date)||!/^([01]\d|2[0-3]):[0-5]\d$/.test(r.time)||!Number.isInteger(r.people)||r.people<1||r.people>70)throw Error('Angaben manuell prüfen.');
@@ -10,8 +10,10 @@ export function automaticMessage(context){
  const body=s.body??DEFAULT_BODY,signature=s.signature??DEFAULT_SIGNATURE,subject=s.subject||'Deine Reservationsbestätigung · Fonduehüsli Bülach';
  if(!body.trim()||body.length>12000||signature.length>4000||subject.length>200||/[\r\n]/.test(subject))throw Error('Bestätigungsvorlage prüfen.');
  const greeting=d.first&&['Liebe','Lieber'].includes(d.salutation)?`${d.salutation} ${name}`:`Hallo ${name}`;
- const text=`${greeting}\n\n${body.replaceAll('{{datum}}',day).replaceAll('{{zeit}}',r.time).replaceAll('{{personen}}',String(r.people)).trim()}\n\nDeine Reservation: ${day}, ${r.time} Uhr, ${r.people} ${r.people===1?'Person':'Personen'}.\n\n${signature.trim()}`;
- return {recipient:d.email.trim().toLowerCase(),subject,text,html:`<!doctype html><html lang="de"><body style="margin:0;padding:24px;font:15px Arial,sans-serif;color:#171717"><div style="max-width:650px">${text.split('\n\n').map(p=>'<p style="margin:0 0 22px">'+esc(p).replaceAll('\n','<br>')+'</p>').join('')}<img src="${BANNER}" width="630" alt="Fonduehüsli Lindenhof · Bülach" style="display:block;max-width:100%;height:auto"></div></body></html>`};
+ const campaign=votingCampaign(now);
+ const mainText=`${greeting}\n\n${body.replaceAll('{{datum}}',day).replaceAll('{{zeit}}',r.time).replaceAll('{{personen}}',String(r.people)).trim()}\n\nDeine Reservation: ${day}, ${r.time} Uhr, ${r.people} ${r.people===1?'Person':'Personen'}.\n\n${signature.trim()}`;
+ const text=mainText+(campaign.text?'\n\n'+campaign.text:'');
+ return {recipient:d.email.trim().toLowerCase(),subject,text,html:`<!doctype html><html lang="de"><body style="margin:0;padding:24px;font:15px Arial,sans-serif;color:#171717"><div style="max-width:650px">${mainText.split('\n\n').map(p=>'<p style="margin:0 0 22px">'+esc(p).replaceAll('\n','<br>')+'</p>').join('')}<img src="${BANNER}" width="630" alt="Fonduehüsli Lindenhof · Bülach" style="display:block;max-width:100%;height:auto">${campaign.html}</div></body></html>`};
 }
 export async function runAutomaticConfirmation(mailId,{rpc,domainReady,send}){
  const context=await rpc('automatic_confirmation_context',{p:{mail_id:mailId}});

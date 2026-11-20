@@ -17,3 +17,21 @@ test('ambiguous names and recipient addresses must be reviewed, incomplete booki
 });
 
 test('unknown first names automatically receive a neutral greeting and do not require guessing',()=>{const m=confirmationMessage({reservation:{...booking,data:{...booking.data,first:'Kim',salutation:suggestSalutation('Kim')}}});assert(m.text.startsWith('Hallo Kim'));});
+
+test('voting poster is clickable through the final Swiss minute and absent afterwards',async()=>{
+ const {VOTING_URL,VOTING_IMAGE}=await import('./public/confirmation-core.mjs');
+ const {automaticMessage}=await import('./server/resend-mail/automatic-core.mjs');
+ const server=await import('./server/confirmation-mail/confirmation-core.mjs');
+ const webhook=await import('./server/resend-mail/confirmation-core.mjs');
+ for(const [now,active] of [['2026-11-20T07:00:00+01:00',true],['2026-11-29T23:59:59.999+01:00',true],['2026-11-30T00:00:00+01:00',false],['2027-01-01T00:00:00+01:00',false]]){
+  const manual=confirmationMessage({reservation:booking,now});
+  assert.deepEqual(server.confirmationMessage({reservation:booking,now}),manual);
+  assert.deepEqual(webhook.confirmationMessage({reservation:booking,now}),manual);
+  for(const message of [manual,automaticMessage({reservation:booking},now)]){
+   assert.equal(message.html.includes(`<a href="${VOTING_URL}"`),active);
+   assert.equal(message.html.includes(`<img src="${VOTING_IMAGE}"`),active);
+   assert.equal(message.text.includes(VOTING_URL),active);
+   assert(message.html.includes('/mail-banner.png'));
+  }
+ }
+});

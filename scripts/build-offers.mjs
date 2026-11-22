@@ -1,0 +1,9 @@
+import {build} from 'esbuild';
+import {mkdir,writeFile,copyFile,cp} from 'node:fs/promises';
+import {createRequire} from 'node:module';
+import path from 'node:path';
+const require=createRequire(import.meta.url);await mkdir('public/offerten',{recursive:true});
+await build({entryPoints:['offers-src/entry.tsx'],bundle:true,format:'esm',splitting:true,outdir:'public/offerten',entryNames:'app',chunkNames:'chunk-[hash]',platform:'browser',target:'es2022',jsx:'automatic',minify:true,plugins:[{name:'pdf-worker-url',setup(b){b.onResolve({filter:/pdf\.worker\.min\.mjs\?url$/},()=>({path:'pdf-worker',namespace:'worker-url'}));b.onLoad({filter:/.*/,namespace:'worker-url'},()=>({contents:'export default "/offerten/pdf.worker.min.mjs";'}));}}]});
+await copyFile(require.resolve('pdfjs-dist/build/pdf.worker.min.mjs'),'public/offerten/pdf.worker.min.mjs');await copyFile('offers-src/offers.css','public/offerten/offers.css');
+await mkdir('public/ocr/lang',{recursive:true});await copyFile(require.resolve('tesseract.js/dist/worker.min.js'),'public/ocr/worker.min.js');const core=path.dirname(require.resolve('tesseract.js-core/package.json'));await cp(core,'public/ocr/core',{recursive:true});const language=path.dirname(require.resolve('@tesseract.js-data/deu/package.json'));await copyFile(path.join(language,'4.0.0_best_int/deu.traineddata.gz'),'public/ocr/lang/deu.traineddata.gz');
+await writeFile('public/offerten/index.html','<!doctype html><html lang="de-CH"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow"><title>Offerten · Fonduehüsli & SOO!</title><link rel="stylesheet" href="/offerten/offers.css"></head><body><div id="offers-root"></div><script type="module" src="/offerten/app.js"></script></body></html>');

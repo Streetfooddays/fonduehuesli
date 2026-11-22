@@ -30,3 +30,5 @@
 .reservation-mail-button{display:inline-flex;align-items:center;justify-content:center;padding:.1rem .3rem;min-width:1.5rem;line-height:1.2;font-size:1rem;vertical-align:middle;cursor:pointer;color:#624629}.reservation-mail-message{border:1px solid #ded3c5;border-radius:6px;margin:.8rem 0;padding:.7rem}.reservation-mail-message>summary{cursor:pointer;font-weight:600}.reservation-mail-message .mail-body{white-space:pre-wrap;overflow-wrap:anywhere;max-width:100%;font:inherit}.reservation-mail-message p{margin:.6rem 0}
 
 .excel-table td:has(>.reservation-mail-button){white-space:nowrap}.excel-table td:has(>.reservation-mail-button)>input{display:inline-block;width:calc(100% - 1.8rem)}.excel-table .reservation-mail-button{width:1.6rem;min-width:1.6rem;padding:.1rem}
+
+.offers-workspace-frame{width:100%;height:calc(100vh - 220px);min-height:780px;border:1px solid #dfd4bd;border-radius:12px;background:#fff}.wrap:has(.offers-workspace-frame){max-width:none}.wrap:has(.offers-workspace-frame)>.heading,.wrap:has(.offers-workspace-frame)>#overview{display:none}@media(max-width:700px){.offers-workspace-frame{min-height:900px}}

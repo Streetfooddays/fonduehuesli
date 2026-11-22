@@ -1,0 +1,17 @@
+begin;
+create table public.catering_offers(id text primary key,payload jsonb not null,created_at timestamptz not null default now(),updated_at timestamptz not null default now());
+create table public.catering_settings(id text primary key check(id='main'),payload jsonb not null);
+create table public.catering_attachments(id uuid primary key,name text not null,type text not null,size integer not null check(size>0 and size<=12582912),path text not null,created_at timestamptz not null default now());
+alter table public.catering_offers enable row level security;
+alter table public.catering_settings enable row level security;
+alter table public.catering_attachments enable row level security;
+revoke all on public.catering_offers,public.catering_settings,public.catering_attachments from public,anon,authenticated;
+grant select,insert,update on public.catering_offers,public.catering_settings to authenticated;
+grant select,insert on public.catering_attachments to authenticated;
+create policy catering_offers_team on public.catering_offers for all to authenticated using((select private.member_role()) is not null) with check((select private.member_role()) is not null);
+create policy catering_settings_team on public.catering_settings for all to authenticated using((select private.member_role()) is not null) with check((select private.member_role()) is not null);
+create policy catering_attachments_team on public.catering_attachments for all to authenticated using((select private.member_role()) is not null) with check((select private.member_role()) is not null);
+insert into storage.buckets(id,name,public,file_size_limit) values('catering-inquiries','catering-inquiries',false,12582912);
+create policy catering_files_read on storage.objects for select to authenticated using(bucket_id='catering-inquiries' and (select private.member_role()) is not null);
+create policy catering_files_upload on storage.objects for insert to authenticated with check(bucket_id='catering-inquiries' and (select private.member_role()) is not null);
+commit;

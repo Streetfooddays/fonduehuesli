@@ -2,6 +2,7 @@ import {reservationMailHistoryHTML} from './reservation-mail-history.mjs';
 import {resolveRequestBooking,findContactReservations} from './request-matching.mjs';
 import {compactRequestHTML} from './request-summary.mjs';
 import {parseMail} from './mail-core.mjs';
+import {isVoucherRequest} from './voucher-request.mjs';
 import {renderExcelOverview} from './excel-overview.mjs';
 import {guest,escapeHTML as e} from './core.mjs';
 import {floorPlan,setFloorLayouts,tableAssignments} from './floor-plan.mjs';
@@ -11,6 +12,7 @@ const validDay=d=>/^\d{4}-\d{2}-\d{2}$/.test(d||'');
 export function matchingRequestBooking(mail,rows){const match=resolveRequestBooking(mail,rows);return ['linked','exact'].includes(match.kind)?match.booking:null;}
 export function relatedRequestBooking(mail,rows){const match=resolveRequestBooking(mail,rows);return match.kind==='related'?match.booking:null;}
 export function requestSelection(mail,rows){
+ if(isVoucherRequest(mail.subject))return {kind:'none',mailId:mail.id,day:'',tables:'',name:'Gutscheinbestellung'};
  const booking=matchingRequestBooking(mail,rows)||relatedRequestBooking(mail,rows),draft=mail.draft||{};
  return {kind:'mail',mailId:mail.id,booking,rowId:booking?.id||null,day:booking?.date||draft.date||'',time:booking?.time||draft.time||'',people:booking?.people??draft.people??0,tables:booking?.table_no||'',name:[(booking?guest(booking):draft.data)?.first,(booking?guest(booking):draft.data)?.last].filter(Boolean).join(' ')||'Anfrage ohne Namen'};
 }
@@ -72,14 +74,30 @@ export function renderExcelWorkspace(root,api){
   memo.mailId=selectedMail;const requestIndex=pending.findIndex(m=>m.id===selectedMail);$('#wb-prev-request').disabled=requestIndex<=0;$('#wb-next-request').disabled=requestIndex<0||requestIndex>=pending.length-1;
   if(requestsSignature!==signature){requestsSignature=signature;$('#wb-request-select').innerHTML=pending.map(m=>{const ctx=requestSelection(m,s.rows);return `<option value="${e(m.id)}" ${m.id===selectedMail?'selected':''}>${e(ctx.day||'Datum offen')} · ${e(ctx.name)}</option>`;}).join('');$('#wb-request-select').disabled=!pending.length;}
   const mail=pending.find(m=>m.id===selectedMail);
-  const activeBooking=mail&&(matchingRequestBooking(mail,s.rows)||relatedRequestBooking(mail,s.rows));
-  sheet?.showRequestPreview(mail&&!activeBooking?mail:null);
-  const highlightId=activeBooking?.id||(mail?'request-preview-'+mail.id:null);const highlightKey=JSON.stringify([selectedMail,highlightId,activeBooking?.date||mail?.draft?.date]);sheet?.setCurrentRequest(highlightId,{scroll:highlightedMail!==highlightKey});highlightedMail=highlightKey;
+  const voucherOrder=!!mail&&isVoucherRequest(mail.subject);
+  const activeBooking=mail&&!voucherOrder&&(matchingRequestBooking(mail,s.rows)||relatedRequestBooking(mail,s.rows));
+  sheet?.showRequestPreview(mail&&!activeBooking&&!voucherOrder?mail:null);
+  const highlightId=activeBooking?.id||(mail&&!voucherOrder?'request-preview-'+mail.id:null);const highlightKey=JSON.stringify([selectedMail,highlightId,activeBooking?.date||mail?.draft?.date]);sheet?.setCurrentRequest(highlightId,{scroll:highlightedMail!==highlightKey});highlightedMail=highlightKey;
   if(!mail){displayedMail=null;$('#wb-request-content').innerHTML='<p class="muted">Keine offenen Reservationsanfragen.</p>';$('#wb-request-actions').innerHTML='';return;}
   $('#wb-request-select').value=selectedMail;
   const ctx=requestSelection(mail,s.rows),d=ctx.booking?guest(ctx.booking):mail.draft?.data||{},contentSignature=JSON.stringify([mail.id,mail.state,mail.draft,ctx.booking?.revision,[...s.outbox,...(s.replies||[])].map(o=>[o.id,o.state]),s.inbox.map(m=>[m.id,m.reservation_id,m.state,m.draft]),s.rows.map(r=>[r.id,r.revision])]);
   if(displayedMail===mail.id&&$('#wb-request-content').dataset.signature===contentSignature)return;
   displayedMail=mail.id;$('#wb-request-content').dataset.signature=contentSignature;
+  if(voucherOrder){
+   const token=++bodyToken;
+   $('#wb-request-content').innerHTML=compactRequestHTML(mail);
+   const original=$('#wb-request-content .request-original');
+   original.ontoggle=async()=>{
+    if(!original.open)return;
+    const body=original.querySelector('.mail-original-body');
+    try{if(!bodyCache.has(mail.id))bodyCache.set(mail.id,(await api.readMail(mail.id)).body||'');
+     if(!disposed&&token===bodyToken)body.textContent=bodyCache.get(mail.id);
+    }catch(err){if(!disposed&&token===bodyToken)body.textContent=err.message;}
+   };
+   $('#wb-request-actions').innerHTML=api.openMailVoucher?'<button type="button" class="small" id="wb-voucher">Gutschein</button>':'';
+   if(api.openMailVoucher)$('#wb-voucher').onclick=()=>{if(!busy)api.openMailVoucher(mail);};
+   return;
+  }
   const linked=!!mail.reservation_id,related=relatedRequestBooking(mail,s.rows),duplicate=!linked&&!!ctx.booking&&!related,queued=s.outbox.find(o=>o.state!=='sent'&&(o.mail_id===mail.id||o.reservation_id===ctx.booking?.id));
   $('#wb-request-content').innerHTML=compactRequestHTML(mail,ctx.booking||related,{includeOriginal:false})+(duplicate?'<p class="hint">Passender Eintrag bereits vorhanden. Beim Übernehmen wird die Anfrage damit verknüpft.</p>':related?'<p class="hint">Passende bestehende Reservation gefunden. Abweichende Angaben bitte prüfen.</p>':'')+(resolveRequestBooking(mail,s.rows).kind==='ambiguous'?'<p class="hint">Mehrere passende Reservationen gefunden. Bitte manuell zuordnen.</p>':'')+(mail.issues?.length?`<details class="wb-review"><summary>Prüfhinweise (${mail.issues.length})</summary>${mail.issues.map(e).join('<br>')}</details>`:'');
   if(ctx.booking&&((mail.draft?.date&&mail.draft.date!==ctx.booking.date)||(mail.draft?.time&&mail.draft.time!==ctx.booking.time)||(mail.draft?.people&&Number(mail.draft.people)!==Number(ctx.booking.people))))$('#wb-request-content').insertAdjacentHTML('beforeend',`<p class="hint">Neuere Angaben im Mail: ${e(mail.draft.date||'Datum offen')} · ${e(mail.draft.time||'Zeit offen')} · ${e(mail.draft.people||'?')} Personen. Bitte über «Reservation bearbeiten» prüfen.</p>`);
@@ -148,5 +166,12 @@ export function renderExcelWorkspace(root,api){
  };
  drawRequests();const first=state().inbox.find(m=>m.id===selectedMail),restore=memo.selection;if(first)choose(requestSelection(first,state().rows));else if(restore?.kind==='row'&&state().rows.some(r=>r.id===restore.rowId)){sheet.focusReservation(restore.rowId);}else drawPlan();
  const timer=setInterval(()=>refresh({silent:true}),30000);
- return {refreshFromState(){const s=state();sheet.replaceData(s.rows,s.outbox);drawRequests();drawPlan();},canLeave:()=>sheet.canLeave(),isDirty:()=>sheet.isDirty(),refreshPlan:drawPlan,dispose(){planDialog.close();disposed=true;bodyToken++;clearInterval(timer);sheet.dispose();}};
+ return {refreshRequests(){
+  const previous=selectedMail;
+  drawRequests();
+  if(previous!==selectedMail&&selection.mailId===previous){
+   const next=state().inbox.find(mail=>mail.id===selectedMail);
+   choose(next?requestSelection(next,state().rows):{kind:'none',day:api.date,tables:''},{navigate:false});
+  }
+ },refreshFromState(){const s=state();sheet.replaceData(s.rows,s.outbox);drawRequests();drawPlan();},canLeave:()=>sheet.canLeave(),isDirty:()=>sheet.isDirty(),refreshPlan:drawPlan,dispose(){planDialog.close();disposed=true;bodyToken++;clearInterval(timer);sheet.dispose();}};
 }

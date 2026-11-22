@@ -30,14 +30,14 @@ export function voucherContact(booking, mail) {
   };
 }
 
-export function openVoucherDialog({req, booking, mail}) {
+export function openVoucherDialog({req, booking, mail, onMailArchived}) {
   const dialog = document.createElement('dialog');
   dialog.className = 'voucher-dialog';
   dialog.setAttribute('aria-label', 'Gutschein erstellen');
   dialog.innerHTML = '<div class="dialog-head"><h2>Gutschein erstellen</h2><button type="button" class="quiet" aria-label="Schliessen">✕</button></div><div data-voucher-body></div>';
   document.body.append(dialog);
   const dispose = renderVouchers(dialog.querySelector('[data-voucher-body]'), {
-    req, initialFields: voucherContact(booking, mail), inDialog: true,
+    req, initialFields: voucherContact(booking, mail), inDialog: true, mailId: mail?.id, onMailArchived,
   });
   function close() {
     dispose();
@@ -50,7 +50,7 @@ export function openVoucherDialog({req, booking, mail}) {
   return close;
 }
 
-export function renderVouchers(root, {req, initialFields = {}, inDialog = false}) {
+export function renderVouchers(root, {req, initialFields = {}, inDialog = false, mailId = null, onMailArchived}) {
   root.innerHTML = `<section class="card voucher-workspace">
     ${inDialog ? '' : '<h2>Gutscheine</h2>'}
     <form data-voucher-form>
@@ -139,9 +139,11 @@ export function renderVouchers(root, {req, initialFields = {}, inDialog = false}
       const result = await request({action: 'send', id: row.id});
       if (!result.sent_at) throw new Error('Der Versand wurde noch nicht bestätigt.');
       row.sent_at = result.sent_at;
+      if (result.voucher_sent_at) onMailArchived?.(result);
       if (disposed) return;
       preview.querySelector('[data-voucher-send-state]').textContent = 'Versendet an ' + row.email;
-      showMessage('Gutschein und Rechnung wurden zum Versand angenommen.');
+      showMessage(result.voucher_sent_at ? 'Gutschein und Rechnung wurden zum Versand angenommen. Die Mailanfrage ist erledigt.' : 'Gutschein und Rechnung wurden zum Versand angenommen.');
+      if (mailId && result.voucher_sent_at) submit.hidden = true;
       await refreshHistory();
     });
     if (busy) send.disabled = true;
@@ -200,7 +202,7 @@ export function renderVouchers(root, {req, initialFields = {}, inDialog = false}
     if (pending?.fingerprint !== fingerprint) pending = {id: crypto.randomUUID(), fingerprint};
     const id = pending.id;
     void run(async () => {
-      const row = await request({action: 'create', id, fields: values});
+      const row = await request({action: 'create', id, fields: values, mail_id: mailId});
       if (disposed) return;
       pending = null;
       form.reset();

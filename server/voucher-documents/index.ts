@@ -40,15 +40,23 @@ function preview(row: any) {
   return {...summary, documents: row.documents};
 }
 
+async function finishDelivery(id: string, resendId: string | null = null) {
+  return answer(await checked(admin.rpc('finish_voucher_delivery', {p_id: id, p_resend_id: resendId})));
+}
+
 async function sendVoucher(row: any) {
-  if (row.sent_at) return answer({sent_at: row.sent_at});
+  if (row.sent_at) return finishDelivery(row.id);
+  if (row.mail_id) {
+    const mail = await checked(admin.from('mail_inbox').select('voucher_sent_at').eq('id', row.mail_id).maybeSingle());
+    if (mail?.voucher_sent_at) return answer({error: 'Für diese Anfrage wurde bereits ein Gutschein versendet.'}, 409);
+  }
   const {documents} = await ensureDocuments(row);
   const credentials = await checked(admin.rpc('mail_credentials'));
   if (!credentials?.enabled || !credentials?.api_key) return answer({error: 'Der E-Mail-Versand ist noch nicht verbunden.'}, 409);
   const started = await checked(table().update({first_send_attempt: new Date().toISOString()})
     .eq('id', row.id).is('first_send_attempt', null).select('first_send_attempt,sent_at').maybeSingle());
   const delivery = started || await checked(table().select('first_send_attempt,sent_at').eq('id', row.id).single());
-  if (delivery.sent_at) return answer({sent_at: delivery.sent_at});
+  if (delivery.sent_at) return finishDelivery(row.id);
   // Resend retains idempotency keys for 24 hours. Leave a margin before expiry.
   if (Date.now() - Date.parse(delivery.first_send_attempt) >= 23 * 60 * 60 * 1000) {
     return answer({error: 'Der frühere Versandstatus ist offen. Bitte im Versandprotokoll prüfen, ob die E-Mail angekommen ist.'}, 409);
@@ -80,9 +88,7 @@ async function sendVoucher(row: any) {
   }
   const result = await response.json();
   if (typeof result.id !== 'string' || !result.id) return answer({error: 'Der Maildienst hat keine Versandbestätigung geliefert.'}, 502);
-  const saved = await checked(table().update({resend_id: result.id, sent_at: new Date().toISOString()})
-    .eq('id', row.id).is('sent_at', null).select('sent_at').maybeSingle());
-  return answer(saved || {sent_at: (await lookup(row.id)).sent_at});
+  return finishDelivery(row.id, result.id);
 }
 
 Deno.serve(async (req: Request) => {
@@ -116,7 +122,16 @@ Deno.serve(async (req: Request) => {
       let fields;
       try { fields = await validateVoucher(body.fields); }
       catch (err) { return answer({error: (err as Error).message}, 400); }
-      const row = await checked(admin.rpc('issue_voucher', {p_id: body.id, p_user: user.id, p_data: fields}));
+      const mailId = body.mail_id ?? null;
+      if (mailId !== null && (typeof mailId !== 'string' || !mailId.trim() || mailId.length > 200 || /[\u0000-\u001f\u007f]/.test(mailId))) {
+        return answer({error: 'Mailanfrage prüfen.'}, 400);
+      }
+      if (mailId !== null) {
+        const mail = await checked(admin.from('mail_inbox').select('voucher_sent_at').eq('id', mailId).maybeSingle());
+        if (!mail) return answer({error: 'Mailanfrage nicht gefunden.'}, 404);
+        if (mail.voucher_sent_at) return answer({error: 'Für diese Anfrage wurde bereits ein Gutschein versendet.'}, 409);
+      }
+      const row = await checked(admin.rpc('issue_voucher', {p_id: body.id, p_user: user.id, p_data: fields, p_mail_id: mailId}));
       return answer(preview(await ensureDocuments(row)));
     }
     const row = await lookup(body.id);

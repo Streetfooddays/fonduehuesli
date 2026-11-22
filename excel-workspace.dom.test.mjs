@@ -150,3 +150,9 @@ test('switching requests ignores a slower previous history and allows retry afte
  const select=document.querySelector('#wb-request-select');select.value='two';select.onchange();await tick();await tick();assert(document.querySelector('[data-request-history][role=alert]'));release();await tick();assert(!document.querySelector('[data-request-history]').textContent.includes('Old request thread'));
  document.querySelector('[data-request-history] button').click();await tick();await tick();assert(document.querySelector('[data-request-history]').textContent.includes('Current complete thread'));assert.equal(document.querySelector('[data-request-history]').hasAttribute('role'),false);
 });
+
+test('contact search lists all reservations matching email or telephone even with a linked date match',async t=>{
+ const a=row('a'),b={...row('b','2099-02-01'),data:JSON.stringify({first:'Other',last:'Name',email:'other@example.invalid',phone:'0791234567'})},c=row('c','2099-03-01'),m=request('all-hits',a);m.draft.data.phone='+41 79 123 45 67';
+ const {document,calls}=mount(t,{rows:[a,b,c],inbox:[m]});await tick();await tick();
+ assert.equal(document.querySelectorAll('[data-request-booking]').length,3);const hits=document.querySelector('[data-request-match]');assert(hits.textContent.includes('Telefon'));assert(hits.textContent.includes('E-Mail'));assert(hits.textContent.includes('01.02.2099'));assert.deepEqual(calls,[]);
+});

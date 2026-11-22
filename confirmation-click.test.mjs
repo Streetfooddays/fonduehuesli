@@ -28,8 +28,17 @@ test('review excludes lunch, cancelled and waitlisted guests and ignores other d
 for(const [label,extra] of [['canonical flag',{gondola:1}],['guest selection',{data:JSON.stringify({...guest(candidate),gondola:'Ja'})}],['assigned table',{table_no:'G2'}]]){
  test(`gondola ${label} requires OK before sending and cancellation leaves reservation open`,async()=>{
   const booking={...candidate,...extra},cancelled=setup({booking,acceptGondola:false,tableOverride:''});
-  assert.equal((await cancelled.click()).outcome,'cancelled');assert.deepEqual(cancelled.questions,['Reservation in der Gondel OK?']);assert.equal(cancelled.calls.length,0);assert.equal(cancelled.context.rows[0].status,'Offen');
-  const accepted=setup({booking});assert.equal((await accepted.click()).outcome,'sent');assert.deepEqual(accepted.questions,['Reservation in der Gondel OK?']);assert.equal(accepted.calls[0].reservation.gondola,true);
+  assert.equal((await cancelled.click()).outcome,'cancelled');assert.deepEqual(cancelled.questions,['Habt ihr gesehen, dass diese Reservation in einer Fonduegondel ist?']);assert.equal(cancelled.calls.length,0);assert.equal(cancelled.context.rows[0].status,'Offen');
+  const accepted=setup({booking});assert.equal((await accepted.click()).outcome,'sent');assert.deepEqual(accepted.questions,['Habt ihr gesehen, dass diese Reservation in einer Fonduegondel ist?']);assert.equal(accepted.calls[0].reservation.gondola,true);
  });
 }
 test('normal table reservations do not ask the gondola question',async()=>{const s=setup();await s.click();assert.equal(s.questions.length,0);});
+
+test('checking an existing reservation carries the incoming form gondola wish into the editor',()=>{
+ const start=source.indexOf('function excelRequestProposal('),end=source.indexOf('\nasync function editExcelRequest(',start);
+ const ctx={isGondolaReservation,guest};vm.createContext(ctx);vm.runInContext(source.slice(start,end),ctx);
+ for(const revision of [0,3]){
+  const booking={...candidate,revision,gondola:0},mail={draft:{data:{gondola:'Ja'}},issues:[]};
+  const reviewed=ctx.excelRequestProposal(mail,booking);assert.equal(reviewed.gondola,1);assert.equal(guest(reviewed).gondola,'Ja');assert.equal(booking.gondola,0);
+ }
+});

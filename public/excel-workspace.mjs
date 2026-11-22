@@ -1,5 +1,5 @@
 import {reservationMailHistoryHTML} from './reservation-mail-history.mjs';
-import {resolveRequestBooking} from './request-matching.mjs';
+import {resolveRequestBooking,findContactReservations} from './request-matching.mjs';
 import {compactRequestHTML} from './request-summary.mjs';
 import {parseMail} from './mail-core.mjs';
 import {renderExcelOverview} from './excel-overview.mjs';
@@ -85,11 +85,13 @@ export function renderExcelWorkspace(root,api){
   if(ctx.booking&&((mail.draft?.date&&mail.draft.date!==ctx.booking.date)||(mail.draft?.time&&mail.draft.time!==ctx.booking.time)||(mail.draft?.people&&Number(mail.draft.people)!==Number(ctx.booking.people))))$('#wb-request-content').insertAdjacentHTML('beforeend',`<p class="hint">Neuere Angaben im Mail: ${e(mail.draft.date||'Datum offen')} · ${e(mail.draft.time||'Zeit offen')} · ${e(mail.draft.people||'?')} Personen. Bitte über «Reservation bearbeiten» prüfen.</p>`);
   const replies=(s.replies||[]).filter(r=>r.mail_id===mail.id),pendingReply=replies.find(r=>r.state!=='sent'),lastReply=replies.find(r=>r.state==='sent');
   if(lastReply)$('#wb-request-content').insertAdjacentHTML('beforeend',`<p class="muted">Antwort bereits gesendet${lastReply.sent_at?' · '+e(new Intl.DateTimeFormat('de-CH',{dateStyle:'short',timeStyle:'short',timeZone:'Europe/Zurich'}).format(new Date(lastReply.sent_at))):''}. Die Anfrage bleibt offen.</p>`);
-  $('#wb-request-content').insertAdjacentHTML('beforeend','<section class="wb-matched-reservation" aria-label="Passende Reservation"><h3>Passende Reservation im Buch</h3><div data-request-match></div></section><section class="wb-mail-history" aria-label="Gesamter Mailverlauf"><h3>Gesamter Mailverlauf</h3><div data-request-history role="status">Mailverlauf wird geladen …</div></section>');
+  $('#wb-request-content').insertAdjacentHTML('beforeend','<section class="wb-matched-reservation" aria-label="Passende Reservation"><h3>Reservationstreffer im Buch</h3><div data-request-match></div></section><section class="wb-mail-history" aria-label="Gesamter Mailverlauf"><h3>Gesamter Mailverlauf</h3><div data-request-history role="status">Mailverlauf wird geladen …</div></section>');
   function showMatch(match){
-   const host=$('[data-request-match]'),booking=match.booking;
+   const host=$('[data-request-match]'),hits=findContactReservations(mail,state().rows),candidates=new Map(hits.map(hit=>[hit.booking.id,hit]));
+   for(const booking of [match.booking,...(match.candidates||[])].filter(Boolean))if(!candidates.has(booking.id))candidates.set(booking.id,{booking});
    const label=r=>{const g=guest(r);return `${[g.first,g.last].filter(Boolean).join(' ')||g.company||'Reservation'} · ${String(r.date||'').split('-').reverse().join('.')} · ${r.time||'Zeit offen'} · ${r.people} Personen · ${r.status}${r.table_no?' · Tisch '+r.table_no:''}`;};
-   host.innerHTML=booking?`<p>${e(label(booking))}</p><button type="button" class="secondary small" data-request-booking="${e(booking.id)}">Reservation in der Liste anzeigen</button>`:match.kind==='ambiguous'?'<p class="hint">Mehrere mögliche Reservationen. Bitte den passenden Eintrag ansehen und prüfen.</p>'+match.candidates.map(r=>`<button type="button" class="secondary small" data-request-booking="${e(r.id)}">${e(label(r))}</button>`).join(''):'<p class="muted">Keine passende Reservation gefunden. Die Anfrage ist noch keinem Eintrag zugeordnet.</p>';
+   const found=[...candidates.values()];
+   host.innerHTML=found.length?`<p class="${found.length>1?'hint':'muted'}">${found.length===1?'Eine passende Reservation gefunden.':`Mehrere mögliche Reservationen (${found.length}). Bitte den passenden Eintrag ansehen und prüfen.`}</p>`+found.map(({booking,byEmail,byPhone})=>{const g=guest(booking),reasons=[byEmail?'E-Mail':'',byPhone?'Telefon':''].filter(Boolean).join(' und ');return `<div class="wb-reservation-hit"><button type="button" class="secondary small" data-request-booking="${e(booking.id)}">${e(label(booking))}</button><p class="muted">${e(reasons?'Treffer über '+reasons:booking.id===match.booking?.id?'Zugeordnete Reservation':'Weiterer möglicher Treffer')}${g.email?' · '+e(g.email):''}${g.phone?' · '+e(g.phone):''}</p></div>`;}).join(''):'<p class="muted">Keine passende Reservation anhand von E-Mail-Adresse oder Telefonnummer gefunden.</p>';
    host.querySelectorAll('[data-request-booking]').forEach(button=>button.onclick=()=>{if(!actionAllowed())return;if(sheet.focusReservation(button.dataset.requestBooking))sheet.setCurrentRequest(button.dataset.requestBooking);});
   }
   showMatch(resolveRequestBooking(mail,s.rows));

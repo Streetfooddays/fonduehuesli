@@ -47,3 +47,19 @@ test('short date-free replies use a unique email or Swiss phone as a review-only
  assert.equal(resolveRequestBooking({draft:{is_reply:true,data:{first:'Other',last:'Person',phone:'0791234567'}}},[phoneBooking]).kind,'none');
  assert.equal(resolveRequestBooking({draft:{date:'2026-12-24',data:{email:'anna@example.invalid'}}},[booking]).kind,'none');
 });
+
+test('contact search shows every email or phone hit across dates and names without merging bookings',async()=>{
+ const {findContactReservations}=await import('./public/request-matching.mjs');
+ const rows=[
+  {...booking,id:'email',date:'2026-12-10'},
+  {...booking,id:'phone',date:'2026-12-11',data:JSON.stringify({first:'Different',last:'Name',email:'other@example.invalid',phone:'079 123 45 67'})},
+  {...booking,id:'both',date:'2026-12-12',data:JSON.stringify({email:'anna@example.invalid',phone:'+41 (0)79 123 45 67'})},
+  {...booking,id:'cancelled',date:'2026-12-13',status:'Storniert'},
+  {...booking,id:'deleted',deleted_at:'now'},
+  {...booking,id:'unrelated',data:'{"email":"unrelated@example.invalid","phone":"0799999999"}'}
+ ];
+ const mail={reservation_id:'email',draft:{date:'2026-12-10',data:{email:' ANNA@EXAMPLE.INVALID ',phone:'0041 79 123 45 67'}}};
+ const before=JSON.stringify(rows),hits=findContactReservations(mail,rows);
+ assert.deepEqual(hits.map(h=>h.booking.id),['email','phone','both','cancelled']);assert.equal(hits[1].byEmail,false);assert.equal(hits[1].byPhone,true);assert(hits[2].byEmail&&hits[2].byPhone);assert.equal(JSON.stringify(rows),before);
+ assert.equal(findContactReservations({draft:{data:{}}},rows).length,0);
+});

@@ -52,7 +52,7 @@ test('reservation form saves changed details, recovers after a failed save, and 
  assert(html.includes('name="gondola" checked'));assert(html.includes('id="save-without-reply"'));assert(html.includes('Nur speichern – ohne Antwort'));
  const before=operations.length;closed=false;
  await form.onsubmit({preventDefault(){},target:form});
- assert.deepEqual(questions,['Reservation in der Gondel OK?']);assert.equal(operations.length,before);assert.equal(closed,false);assert.equal(els['#save'].disabled,false);
+ assert.deepEqual(questions,['Habt ihr gesehen, dass diese Reservation in einer Fonduegondel ist?']);assert.equal(operations.length,before);assert.equal(closed,false);assert.equal(els['#save'].disabled,false);
  const saveOnly={id:'save-without-reply',textContent:'Nur speichern – ohne Antwort',disabled:false};
  await form.onsubmit({preventDefault(){},target:form,submitter:saveOnly});
  assert.equal(operations.at(-1),'mail_review');assert.equal(calls.at(-1).status,'Offen');assert.equal(calls.at(-1).gondola,true);assert.equal(questions.length,1);assert.equal(saveOnly.disabled,false);assert.equal(closed,true);

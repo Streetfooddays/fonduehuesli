@@ -20,3 +20,7 @@
 @media (max-width: 680px) {
   .voucher-fields, .voucher-pdfs { grid-template-columns: minmax(0, 1fr); }
 }
+
+.voucher-order-comment { margin: 0 0 14px; }
+.voucher-order-comment div { white-space: pre-wrap; overflow-wrap: anywhere; }
+.voucher-sent-message > div { white-space: pre-wrap; overflow-wrap: anywhere; }

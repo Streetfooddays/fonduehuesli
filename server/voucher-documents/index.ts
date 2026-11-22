@@ -40,6 +40,23 @@ function preview(row: any) {
   return {...summary, documents: row.documents};
 }
 
+async function sentMessage(row: any) {
+  if (!row.resend_id || !/^[0-9a-f-]{36}$/i.test(row.resend_id)) return null;
+  try {
+    const credentials = await checked(admin.rpc('mail_credentials'));
+    if (!credentials?.api_key) return null;
+    const response = await fetch('https://api.resend.com/emails/' + row.resend_id, {
+      headers: {Authorization: 'Bearer ' + credentials.api_key},
+      signal: AbortSignal.timeout(4500),
+    });
+    if (!response.ok) return null;
+    const mail = await response.json();
+    return {subject: mail.subject, text: mail.text, last_event: mail.last_event};
+  } catch {
+    return null;
+  }
+}
+
 async function finishDelivery(id: string, resendId: string | null = null) {
   return answer(await checked(admin.rpc('finish_voucher_delivery', {p_id: id, p_resend_id: resendId})));
 }
@@ -108,6 +125,14 @@ Deno.serve(async (req: Request) => {
     try { body = JSON.parse(raw); } catch { return answer({error: 'Eingabe prüfen.'}, 400); }
     if (!body || typeof body !== 'object') return answer({error: 'Eingabe prüfen.'}, 400);
 
+    if (body.action === 'sent') {
+      const offset = body.offset ?? 0;
+      if (!Number.isSafeInteger(offset) || offset < 0) return answer({error: 'Seitenangabe prüfen.'}, 400);
+      const pageSize = 25;
+      const records = await checked(table().select(summaryFields).not('sent_at', 'is', null)
+        .order('sent_at', {ascending: false}).order('id', {ascending: false}).range(offset, offset + pageSize));
+      return answer({items: records.slice(0, pageSize), next_offset: records.length > pageSize ? offset + pageSize : null});
+    }
     if (body.action === 'list') {
       const list = await checked(table().select(summaryFields)
         .order('issued_on', {ascending: false}).order('serial', {ascending: false}).limit(100));
@@ -136,7 +161,11 @@ Deno.serve(async (req: Request) => {
     }
     const row = await lookup(body.id);
     if (!row) return answer({error: 'Gutschein nicht gefunden.'}, 404);
-    return body.action === 'send' ? await sendVoucher(row) : answer(preview(await ensureDocuments(row)));
+    if (body.action === 'send') return await sendVoucher(row);
+    const saved = await ensureDocuments(row);
+    return answer(body.include_message === true && saved.sent_at
+      ? {...preview(saved), mail: await sentMessage(saved)}
+      : preview(saved));
   } catch (err) {
     console.error('Voucher operation failed', (err as Error).name);
     return answer({error: 'Die Aktion konnte nicht abgeschlossen werden. Bitte erneut versuchen.'}, 500);

@@ -3,6 +3,11 @@ import {guest, escapeHTML as e} from './core.mjs';
 const currency = new Intl.NumberFormat('de-CH', {style: 'currency', currency: 'CHF'});
 const amount = cents => currency.format(cents / 100);
 const date = iso => iso.split('-').reverse().join('.');
+const deliveryLabels = {
+  sent: 'Versendet', delivered: 'Zugestellt', opened: 'Zugestellt · geöffnet', clicked: 'Zugestellt · Link geöffnet',
+  bounced: 'Unzustellbar', complained: 'Als Spam gemeldet', delivery_delayed: 'Zustellung verzögert',
+  failed: 'Versand fehlgeschlagen', suppressed: 'Vom Maildienst unterdrückt',
+};
 const status = row => row.sent_at ? 'Versendet' : row.first_send_attempt ? 'Versand offen' : 'Bereit zum Versand';
 
 function pdfLink(content) {
@@ -30,14 +35,17 @@ export function voucherContact(booking, mail) {
   };
 }
 
-export function openVoucherDialog({req, booking, mail, onMailArchived}) {
+export function openVoucherDialog({req, booking, mail, orderFields, onMailArchived, sentVoucher}) {
   const dialog = document.createElement('dialog');
   dialog.className = 'voucher-dialog';
-  dialog.setAttribute('aria-label', 'Gutschein erstellen');
-  dialog.innerHTML = '<div class="dialog-head"><h2>Gutschein erstellen</h2><button type="button" class="quiet" aria-label="Schliessen">✕</button></div><div data-voucher-body></div>';
+  const title = sentVoucher ? 'Versendete Gutscheinmail' : 'Gutschein erstellen';
+  dialog.setAttribute('aria-label', title);
+  dialog.innerHTML = '<div class="dialog-head"><h2>' + title + '</h2><button type="button" class="quiet" aria-label="Schliessen">✕</button></div><div data-voucher-body></div>';
   document.body.append(dialog);
+  const {comment = '', ...order} = orderFields || {};
+  const initialFields = {...voucherContact(booking, mail), ...Object.fromEntries(Object.entries(order).filter(([, value]) => value))};
   const dispose = renderVouchers(dialog.querySelector('[data-voucher-body]'), {
-    req, initialFields: voucherContact(booking, mail), inDialog: true, mailId: mail?.id, onMailArchived,
+    req, initialFields, inDialog: true, mailId: mail?.id, onMailArchived, comment, sentVoucher,
   });
   function close() {
     dispose();
@@ -50,10 +58,11 @@ export function openVoucherDialog({req, booking, mail, onMailArchived}) {
   return close;
 }
 
-export function renderVouchers(root, {req, initialFields = {}, inDialog = false, mailId = null, onMailArchived}) {
+export function renderVouchers(root, {req, initialFields = {}, inDialog = false, mailId = null, onMailArchived, comment = '', sentVoucher}) {
   root.innerHTML = `<section class="card voucher-workspace">
     ${inDialog ? '' : '<h2>Gutscheine</h2>'}
-    <form data-voucher-form>
+    ${comment ? `<aside class="hint voucher-order-comment"><strong>Kommentar aus der Bestellung</strong><div>${e(comment)}</div></aside>` : ''}
+    <form data-voucher-form ${sentVoucher ? 'hidden' : ''}>
       <fieldset class="voucher-fields">
         <legend>Rechnung und Gutschein erstellen</legend>
         <label>Rechnungsname<input name="name" maxlength="70" autocomplete="billing name" required></label>
@@ -112,10 +121,15 @@ export function renderVouchers(root, {req, initialFields = {}, inDialog = false,
     ];
     urls = documents.map(doc => doc.url);
     preview.hidden = false;
-    preview.innerHTML = `<div class="voucher-review-heading">
+    preview.innerHTML = `${sentVoucher ? (row.mail ? `<section class="voucher-sent-message">
+      <h3>${e(row.mail.subject || 'Dein Fonduehüsli-Gutschein ' + row.voucher_no)}</h3>
+      <p>${e(deliveryLabels[row.mail.last_event] || 'Versand erfasst')}</p>
+      <div>${e(row.mail.text || '')}</div>
+    </section>` : '<p class="muted">Der E-Mail-Text ist momentan nicht abrufbar.</p>') : ''}
+    <div class="voucher-review-heading">
       <div><h3 tabindex="-1">Vorschau · ${e(row.voucher_no)}</h3>
       <p>${e(amount(row.amount_cents))} · ${e(row.name)}<br>Versand an <strong>${e(row.email)}</strong></p></div>
-      <button type="button" class="quiet small" data-voucher-close>Vorschau schliessen</button>
+      ${sentVoucher ? '' : '<button type="button" class="quiet small" data-voucher-close>Vorschau schliessen</button>'}
     </div>
     <div class="voucher-pdfs">${documents.map(doc => `<section>
       <h4>${doc.title}</h4>
@@ -123,10 +137,11 @@ export function renderVouchers(root, {req, initialFields = {}, inDialog = false,
       <a href="${doc.url}" target="_blank" rel="noopener">PDF öffnen</a>
       <a href="${doc.url}" download="${doc.title}-${e(doc.no)}.pdf">Herunterladen</a>
     </section>`).join('')}</div>
-    <div class="voucher-send actions">
+    ${sentVoucher ? '' : `<div class="voucher-send actions">
       <span data-voucher-send-state>${e(status(row))}</span>
-      <button type="button" data-voucher-send ${row.sent_at ? 'disabled' : ''}>Versand</button>
-    </div>`;
+      <button type="button" data-voucher-send ${row.sent_at ? 'hidden disabled' : ''}>Versand</button>
+    </div>`}`;
+    if (sentVoucher) return;
     preview.querySelector('[data-voucher-close]').onclick = () => {
       if (busy) return;
       releaseLinks();
@@ -210,6 +225,72 @@ export function renderVouchers(root, {req, initialFields = {}, inDialog = false,
       await refreshHistory();
     });
   };
-  void refreshHistory();
+  if (sentVoucher) showPreview(sentVoucher, false);
+  else void refreshHistory();
   return () => {disposed = true; releaseLinks();};
+}
+
+const sentTime = new Intl.DateTimeFormat('de-CH', {
+  dateStyle: 'short', timeStyle: 'short', timeZone: 'Europe/Zurich',
+});
+
+export function renderSentVoucherMail(root, {req, onOpen}) {
+  root.innerHTML = `<details class="day-notes">
+    <summary>Versendete Gutscheinmails</summary>
+    <p data-sent-voucher-status role="status"></p>
+    <div data-sent-voucher-list></div>
+    <button type="button" class="secondary small" data-sent-voucher-more hidden>Weitere anzeigen</button>
+  </details>`;
+  const details = root.querySelector('details');
+  const status = root.querySelector('[data-sent-voucher-status]');
+  const list = root.querySelector('[data-sent-voucher-list]');
+  const more = root.querySelector('[data-sent-voucher-more]');
+  const request = body => req('/functions/v1/voucher-documents', {method: 'POST', body});
+  let started = false, pending = false, offset = 0;
+
+  async function loadPage() {
+    if (pending || offset === null) return;
+    pending = true;
+    more.disabled = true;
+    status.textContent = 'Gutscheinmails werden geladen …';
+    try {
+      const page = await request({action: 'sent', offset});
+      if (!root.isConnected) return;
+      started = true;
+      offset = page.next_offset;
+      status.textContent = page.items.length || list.childElementCount ? '' : 'Es wurden noch keine Gutscheine versendet.';
+      const fragment = document.createDocumentFragment();
+      for (const row of page.items) {
+        const item = document.createElement('div');
+        item.className = 'voucher-history-row';
+        item.innerHTML = `<div><strong>Dein Fonduehüsli-Gutschein ${e(row.voucher_no)}</strong>
+          <span>${e(sentTime.format(new Date(row.sent_at)))} · ${e(row.email)}</span>
+          <span>${e(amount(row.amount_cents))} · Rechnung ${e(row.invoice_no)}</span></div>
+          <button type="button" class="secondary small">Mail und PDFs ansehen</button>`;
+        const button = item.querySelector('button');
+        button.onclick = async () => {
+          button.disabled = true;
+          try {
+            const sentVoucher = await request({action: 'preview', id: row.id, include_message: true});
+            if (root.isConnected) onOpen(sentVoucher);
+          } catch (err) { status.textContent = err.message; }
+          finally { button.disabled = false; }
+        };
+        fragment.append(item);
+      }
+      list.append(fragment);
+      more.textContent = 'Weitere anzeigen';
+      more.hidden = offset === null;
+    } catch (err) {
+      status.textContent = err.message;
+      more.textContent = 'Erneut versuchen';
+      more.hidden = false;
+    } finally {
+      more.disabled = false;
+      pending = false;
+    }
+  }
+
+  details.ontoggle = () => { if (details.open && !started) void loadPage(); };
+  more.onclick = () => void loadPage();
 }

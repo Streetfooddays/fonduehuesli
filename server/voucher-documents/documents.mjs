@@ -1,6 +1,7 @@
 import {PDFDocument, StandardFonts, rgb} from 'npm:pdf-lib@1.17.1';
 import QRCode from 'npm:qrcode@1.5.4';
 import {fondueJpg, companyPng} from './assets.mjs';
+import {dedicationEmoji} from './dedication-emoji.mjs';
 
 const mm = value => value * 72 / 25.4;
 const width = mm(210);
@@ -23,6 +24,28 @@ function fits(font, source, size, maxWidth) {
   }
   throw new Error('Der Text ist für das PDF zu lang.');
 }
+
+const graphemes = new Intl.Segmenter('de-CH', {granularity: 'grapheme'});
+
+function dedicationRuns(text) {
+  const runs = [];
+  let pending = '';
+  for (const {segment} of graphemes.segment(text)) {
+    const code = [...segment.replace(/\uFE0F/g, '')].map(char => char.codePointAt(0).toString(16)).join('-');
+    if (dedicationEmoji[code]) {
+      if (pending) runs.push({text: pending});
+      runs.push({emoji: code});
+      pending = '';
+    } else pending += segment;
+  }
+  if (pending) runs.push({text: pending});
+  return runs;
+}
+
+const runWidth = (run, font, size) => run.emoji ? size * 1.1 : font.widthOfTextAtSize(run.text, size);
+const dedicationFont = font => ({
+  widthOfTextAtSize: (text, size) => dedicationRuns(text).reduce((total, run) => total + runWidth(run, font, size), 0),
+});
 
 function wrap(value, font, size, maxWidth) {
   const result = [];
@@ -80,7 +103,12 @@ export function normalizeVoucher(input, font) {
     if ((!value && !optional) || value.length > max || lines.some(line => /[\u0000-\u001f\u007f-\u009f]/u.test(line))) {
       throw new Error(label + ' prüfen.');
     }
-    try { lines.forEach(line => font.encodeText(line)); }
+    try {
+      for (const line of lines) {
+        if (key === 'note') dedicationRuns(line).forEach(run => { if (run.text) font.encodeText(run.text); });
+        else font.encodeText(line);
+      }
+    }
     catch { throw new Error(label + ' enthält ein Zeichen, das im PDF nicht dargestellt werden kann.'); }
     return value;
   };
@@ -103,7 +131,7 @@ export function normalizeVoucher(input, font) {
   if (!/^\d{1,6}(\.\d{1,2})?$/.test(entered)) throw new Error('Bitte einen CHF-Betrag mit höchstens zwei Rappenstellen eingeben.');
   const amount_cents = Math.round(Number(entered) * 100);
   if (amount_cents <= 0) throw new Error('Der Betrag muss grösser als CHF 0.00 sein.');
-  if (note && wrap(note, font, 14, width - 130).length > 6) throw new Error('Die Widmung darf im Gutschein höchstens sechs Zeilen belegen.');
+  if (note && wrap(note, dedicationFont(font), 14, width - 130).length > 6) throw new Error('Die Widmung darf im Gutschein höchstens sechs Zeilen belegen.');
   return {name, street, building, postcode, city, email, note, amount_cents};
 }
 
@@ -208,8 +236,21 @@ export async function createDocuments(d, {demo = false} = {}) {
   center('Einlösbar im Fonduehüsli auf dem', 461, 19);
   center('Lindenhof in Bülach', 493, 19);
   if (d.note) {
-    const lines = wrap(d.note, voucher.regular, 14, width - 130);
-    lines.forEach((line, i) => center(line, 540 + 18 * i, 14));
+    const size = 14, font = voucher.regular;
+    const lines = wrap(d.note, dedicationFont(font), size, width - 130);
+    const icons = new Map();
+    for (const [index, line] of lines.entries()) {
+      const runs = dedicationRuns(line);
+      let x = (width - runs.reduce((total, run) => total + runWidth(run, font, size), 0)) / 2;
+      const top = 540 + index * 18;
+      for (const run of runs) {
+        if (run.emoji) {
+          if (!icons.has(run.emoji)) icons.set(run.emoji, await voucher.pdf.embedPng(dedicationEmoji[run.emoji]));
+          v.image(icons.get(run.emoji), x + 0.5, top + 0.5, size, size);
+        } else v.text(run.text, x, top, size);
+        x += runWidth(run, font, size);
+      }
+    }
   }
   center('Bülach, ' + formatDate(d.issued_on, true), 655, 18);
   center(business + ', ' + address + ', ' + location, 712, 15);

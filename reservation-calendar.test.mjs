@@ -66,3 +66,34 @@ test('admin saves all manual choices with revision and keeps failed changes visi
   reject=true;status.value='red';await status.onchange();assert.equal(status.value,'auto');assert(root.textContent.includes('Bitte aktualisieren'));
  }finally{if(descriptor)Object.defineProperty(window.HTMLSelectElement.prototype,'value',descriptor);else delete window.HTMLSelectElement.prototype.value;globalThis.document=oldDocument;}
 });
+
+function gondolaWidget(){
+ const html='<html><head></head><body><form><input id="input-618423413317317508"><input id="input-367563345927268218"><select id="input-847606787351375730"><option value="2" selected>2</option><option value="4">4</option><option value="5">5</option><option value="+ 10">+ 10</option></select><div class="wsite-form-field"><input type="checkbox" id="checkbox-0-_u643396129652693572"></div><button type="submit">Absenden</button></form></body></html>';
+ const {document,window}=parseHTML(html);let fail=false,available=false,submitted=0,requests=[];
+ window.HTMLElement.prototype.showModal=function(){this.open=true;};window.HTMLElement.prototype.close=function(){this.open=false;};window.HTMLElement.prototype.setCustomValidity=function(v){this.validityMessage=v;};window.HTMLElement.prototype.reportValidity=function(){};
+ const people=document.getElementById('input-847606787351375730');Object.defineProperty(people,'value',{configurable:true,writable:true,value:'2'});
+ class Clock extends Date{constructor(...args){super(...(args.length?args:['2026-11-22T08:00:00Z']));}static now(){return new Date('2026-11-22T08:00:00Z').getTime();}}
+ vm.runInNewContext(readFileSync('public/website-calendar.js','utf8'),{document,window,Date:Clock,Intl,Event:window.Event,AbortController,setTimeout,clearTimeout,setInterval:()=>0,fetch:async(url)=>{requests.push(url);if(fail)throw Error('offline');return {ok:true,json:async()=>[{date:'2026-11-24',status:'green',is_open:true,bookable:true,gondolas_available:available}]};}});
+ Object.defineProperty(document.querySelector('[data-fh-time-select]'),'value',{configurable:true,writable:true,value:''});
+ document.querySelector('form').addEventListener('click',ev=>{if(ev.target.closest('button[type=submit]'))submitted++;});
+ return {document,people,gondola:document.getElementById('checkbox-0-_u643396129652693572'),hint:document.querySelector('#fh-gondola-status'),change:el=>el.dispatchEvent(new window.Event('change',{bubbles:true})),setAvailable:v=>available=v,setFail:v=>fail=v,requests,submitted:()=>submitted};
+}
+async function chooseGondolaDate(x){x.document.querySelector('.fh-date-trigger').click();await tick();x.document.querySelector('[data-date="2026-11-24"]').click();await tick();}
+test('date selection shows sold out gondolas while keeping restaurant reservations available',async()=>{
+ const x=gondolaWidget();await chooseGondolaDate(x);
+ assert(x.hint.textContent.includes('Für dieses Datum sind alle Gondeln ausgebucht.'));assert(x.requests.every(url=>url.endsWith('/reservation_calendar_gondolas')));
+ assert.equal(x.gondola.validityMessage,'');x.gondola.checked=true;x.change(x.gondola);await tick();assert(x.gondola.validityMessage.includes('alle Gondeln ausgebucht'));
+ x.document.querySelector('[data-fh-time-select]').value='18:00';x.document.querySelector('button[type=submit]').click();await tick();assert.equal(x.submitted(),0);
+ x.gondola.checked=false;x.change(x.gondola);await tick();assert.equal(x.gondola.validityMessage,'');x.document.querySelector('button[type=submit]').click();await tick();assert.equal(x.submitted(),1);
+});
+test('gondola permits four, warns and blocks five or +10, and clears after correction',async()=>{
+ const x=gondolaWidget();x.setAvailable(true);await chooseGondolaDate(x);x.gondola.checked=true;x.change(x.gondola);await tick();
+ for(const count of ['5','+ 10']){x.people.value=count;x.change(x.people);assert(x.hint.textContent.includes('maximal 4 Personen'));assert(x.gondola.validityMessage.includes('maximal 4 Personen'));}
+ x.people.value='4';x.change(x.people);assert.equal(x.gondola.validityMessage,'');assert(x.hint.textContent.includes('verfügbar'));
+ x.document.querySelector('[data-fh-time-select]').value='18:00';x.document.querySelector('button[type=submit]').click();await tick();assert.equal(x.submitted(),1);
+});
+test('submission rechecks gondolas after last slot fills and fails closed on a connection error',async()=>{
+ const x=gondolaWidget();x.setAvailable(true);await chooseGondolaDate(x);x.gondola.checked=true;x.change(x.gondola);await tick();x.document.querySelector('[data-fh-time-select]').value='18:00';
+ x.setAvailable(false);x.document.querySelector('button[type=submit]').click();await tick();assert.equal(x.submitted(),0);assert(x.hint.textContent.includes('alle Gondeln ausgebucht'));
+ x.setFail(true);x.change(x.gondola);await tick();assert(x.hint.textContent.includes('nicht geprüft'));assert(x.gondola.validityMessage.includes('nicht geprüft'));
+});

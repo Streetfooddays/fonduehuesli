@@ -3,8 +3,8 @@
 function init(){
  const input=document.getElementById('input-618423413317317508');
  if(!input||input.dataset.fhCalendar)return;
- const form=input.closest('form');if(!form)return;input.dataset.fhCalendar='live-20261121';
- const endpoint='https://lfngszulhqncyqkxlcbs.supabase.co/rest/v1/rpc/reservation_calendar';
+ const form=input.closest('form');if(!form)return;input.dataset.fhCalendar='gondola-20261122';
+ const endpoint='https://lfngszulhqncyqkxlcbs.supabase.co/rest/v1/rpc/reservation_calendar_gondolas';
  const key='sb_publishable_u_9eWGABqMzXDZ6bvjRSBQ_8YH176Fw';
  const pad=n=>String(n).padStart(2,'0');
  function swissNow(){const p=Object.fromEntries(new Intl.DateTimeFormat('en-GB',{timeZone:'Europe/Zurich',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',hourCycle:'h23'}).formatToParts(new Date()).map(x=>[x.type,x.value]));return {date:p.year+'-'+p.month+'-'+p.day,hour:Number(p.hour)};}
@@ -42,7 +42,7 @@ function init(){
   loading=(async()=>{const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),10000);
    try{const res=await fetch(endpoint,{method:'POST',headers:{apikey:key,'Content-Type':'application/json'},body:JSON.stringify({p_from:'2026-11-11',p_to:'2027-02-06'}),cache:'no-store',signal:controller.signal});if(!res.ok)throw Error('Verbindung fehlgeschlagen');const data=await res.json();if(!Array.isArray(data)||!data.length)throw Error('Keine Verfügbarkeit');availability=Object.fromEntries(data.map(a=>[a.date,a]));error='';return true;}
    catch{availability={};error='Die Verfügbarkeit konnte nicht geladen werden. Bitte erneut versuchen oder anrufen: 079 484 46 84.';return false;}
-   finally{clearTimeout(timeout);loading=null;if(dialog.open)render();}
+   finally{clearTimeout(timeout);loading=null;updateGondola();if(dialog.open)render();}
   })();if(dialog.open)render();return loading;
  }
  function open(){if(dialog.open)return;const a=(selected||swissNow().date).split('-');month=Math.min(maxMonth,Math.max(minMonth,Number(a[0])*12+Number(a[1])-1));render();dialog.showModal();refresh();dialog.querySelector('.fh-close').focus();}
@@ -51,8 +51,8 @@ function init(){
  dialog.querySelector('.fh-close').onclick=close;dialog.querySelector('#fh-calendar-retry').onclick=refresh;
  dialog.addEventListener('cancel',()=>setTimeout(()=>input.focus(),0));
  dialog.addEventListener('click',ev=>{if(ev.target===dialog){const r=dialog.getBoundingClientRect();if(ev.clientX<r.left||ev.clientX>r.right||ev.clientY<r.top||ev.clientY>r.bottom)close();}});
- window.addEventListener('focus',()=>{if(dialog.open)refresh();});
- setInterval(()=>{if(dialog.open)refresh();},30000);
+ window.addEventListener('focus',()=>{if(dialog.open||chosenDate())refresh();});
+ setInterval(()=>{if(dialog.open||chosenDate())refresh();},30000);
  const oldTime=document.getElementById('input-367563345927268218');let timeSelect,allowedTimes=[];
  if(oldTime){
   timeSelect=document.createElement('select');timeSelect.id=oldTime.id;timeSelect.name=oldTime.name;timeSelect.className=oldTime.className+' wsite-form-select';timeSelect.required=true;timeSelect.setAttribute('aria-required','true');timeSelect.dataset.fhTimeSelect='1';timeSelect.style.cssText='box-sizing:border-box;min-height:44px;max-width:100%;padding:8px 10px;background:#fffdf9;color:#30271f;font-size:16px;';
@@ -60,16 +60,42 @@ function init(){
   for(let n=17*60;n<=21*60+30;n+=15){const v=pad(Math.floor(n/60))+':'+pad(n%60),opt=document.createElement('option');opt.value=v;opt.textContent=v.replace(':','.')+' Uhr';allowedTimes.push(v);timeSelect.appendChild(opt);}
   const value=oldTime.value.trim().replace('.',':');if(allowedTimes.includes(value))timeSelect.value=value;oldTime.replaceWith(timeSelect);timeSelect.onchange=()=>timeSelect.setCustomValidity('');
  }
+ const gondola=document.getElementById('checkbox-0-_u643396129652693572'),people=document.getElementById('input-847606787351375730');
+ let gondolaHint;
+ if(gondola){
+  gondolaHint=document.createElement('p');gondolaHint.id='fh-gondola-status';gondolaHint.setAttribute('role','status');gondolaHint.setAttribute('aria-live','polite');gondolaHint.style.cssText='font:16px/1.5 Arial,sans-serif;margin:10px 0;color:#30271f;background:#fff6e7;padding:10px 12px;border-radius:5px;';
+  gondola.closest('.wsite-form-field').appendChild(gondolaHint);gondola.setAttribute('aria-describedby',gondolaHint.id);
+  gondola.addEventListener('change',()=>{approvedUntil=0;updateGondola();if(chosenDate())refresh();});
+  people?.addEventListener('change',()=>{approvedUntil=0;updateGondola();});
+  input.addEventListener('change',()=>{approvedUntil=0;updateGondola();});
+ }
+ function gondolaProblem(){
+  if(!gondola?.checked)return '';
+  const messages=[],a=availability[chosenDate()];
+  if(Number(String(people?.value||'').replace(/[^0-9]/g,''))>4)messages.push('In einer Fonduegondel haben maximal 4 Personen Platz.');
+  if(a?.gondolas_available===false)messages.push('Für dieses Datum sind alle Gondeln ausgebucht.');
+  else if(chosenDate()&&(!a||typeof a.gondolas_available!=='boolean'))messages.push('Die Gondel-Verfügbarkeit konnte nicht geprüft werden. Bitte erneut versuchen oder anrufen: 079 484 46 84.');
+  return messages.join(' ');
+ }
+ function updateGondola(){
+  if(!gondolaHint)return;
+  const problem=gondolaProblem(),a=availability[chosenDate()];
+  gondola.setCustomValidity(problem);
+  gondolaHint.textContent=problem||(a?.gondolas_available===false?'Für dieses Datum sind alle Gondeln ausgebucht.':a?.gondolas_available===true?'Fonduegondel verfügbar. Maximal 4 Personen pro Gondel.':'Bitte ein Datum wählen, um die Gondel-Verfügbarkeit zu prüfen.');
+  gondolaHint.dataset.state=problem||a?.gondolas_available===false?'unavailable':'available';
+ }
  function chosenDate(){const a=input.value.match(/^(\d{2})\.(\d{2})\.(\d{4})$/);return a?a[3]+'-'+a[2]+'-'+a[1]:'';}
  async function guard(ev){
   const submit=ev.type==='submit'?ev.submitter:ev.target.closest('.wsite-button,button[type=submit],input[type=submit]');if(ev.type!=='submit'&&!submit)return;
-  if(Date.now()<approvedUntil&&permitted(chosenDate()))return;
+  if(Date.now()<approvedUntil&&permitted(chosenDate())&&!gondolaProblem())return;
   ev.preventDefault();ev.stopImmediatePropagation();
   if(timeSelect&&!allowedTimes.includes(timeSelect.value)){timeSelect.setCustomValidity('Bitte eine Uhrzeit zwischen 17.00 und 21.30 Uhr wählen.');timeSelect.focus();timeSelect.reportValidity();return;}
   if(!await refresh()||!permitted(chosenDate())){input.setCustomValidity('Bitte einen verfügbaren Tag wählen. Heute ist online bis 12.00 Uhr buchbar.');open();return;}
+  updateGondola();if(gondolaProblem()){gondola.focus();gondola.reportValidity();return;}
   input.setCustomValidity('');approvedUntil=Date.now()+1000;
   if(submit)submit.click();else form.requestSubmit();
  }
+ updateGondola();
  form.addEventListener('click',guard,true);form.addEventListener('submit',guard,true);
 }
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init);else init();

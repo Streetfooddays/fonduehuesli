@@ -8,6 +8,9 @@ export function htmlText(html=''){
 function parseSingleMail(text,options={}){
  const found={},issues=[],dateValues=[],combinedNames=[];const lines=String(text||'').replace(/\r/g,'').split('\n').map(s=>s.replace(/^\s*>\s?/,'').trim()).filter(Boolean);
  for(let i=0;i<lines.length;i++){
+  // Weebly may flatten a selected checkbox into label.option without a colon.
+  const selectedGondola=lines[i].match(/^(?:Fonduegondel|Gondel)\s*\.\s*(Ich reserviere gerne eine Fonduegondel\b.*)$/i);
+  if(selectedGondola){found.gondola=selectedGondola[1];continue;}
   const line=lines[i],match=line.match(/^([^:]{2,40}):\s*(.*)$/);let label=match?match[1].trim().toLowerCase():line.toLowerCase(),value=match?match[2].trim():'';
   label=label.replace(/\s*\*+$/,'').replace(/\s+/g,' ').trim();
   const key=Object.keys(names).find(k=>names[k].includes(label));if(!key)continue;

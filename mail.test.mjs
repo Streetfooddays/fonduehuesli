@@ -47,3 +47,12 @@ test('whole-thread recognition finds an older form behind a short reply and appl
  const p=parseMail('Vielen Dank, passt!\n\n-----Original Message-----\n'+original,{receivedAt:'2026-11-15',sender:'Team <team@example.invalid>'});assert.deepEqual([p.draft.date,p.draft.time,p.draft.people,p.draft.data.first,p.draft.data.last,p.draft.data.email],['2026-12-12','18:30',6,'Anna','Muster','anna@example.invalid']);assert.equal(p.complete,false);
  const changed=parseMail('Wir kommen nun mit 8 Personen und um 19 Uhr.\n\nAm 02.11.2026 schrieb Anna:\n'+original.split('\n').map(s=>'> '+s).join('\n'),{receivedAt:'2026-11-15'});assert.deepEqual([changed.draft.date,changed.draft.time,changed.draft.people,changed.draft.data.first],['2026-12-12','19:00',8,'Anna']);assert(changed.issues.some(i=>i.includes('Änderung im Mailverlauf')));assert.equal(reservationCandidate(changed),false);
 });
+
+test('Weebly flattened Gondel checkbox is imported as a gondola request',async()=>{
+ const {parseMail}=await import('./public/mail-core.mjs');
+ const base='Nachname: Muster\nVorname: Anna\nDatum: 29.11.2026\nUhrzeit: 19:30\nAnzahl Personen: 2\nE-Mail: anna@example.invalid\n';
+ for(const field of ['Fonduegondel.Ich reserviere gerne eine Fonduegondel (max. 4 Pers.)','Fonduegondel. Ich reserviere gerne eine Fonduegondel (max. 4 Pers.)','Fonduegondel: Ich reserviere gerne eine Fonduegondel (max. 4 Pers.)','Fonduegondel\nIch reserviere gerne eine Fonduegondel (max. 4 Pers.)']){
+  const parsed=parseMail(base+field,{receivedAt:'2026-11-22'});assert.equal(parsed.draft.data.gondola,'Ja');assert(parsed.issues.some(i=>i.includes('Gondelwunsch')));
+ }
+ for(const field of ['Fonduegondel: Nein','Fonduegondel: 0','Information: Eine Fonduegondel hat maximal 4 Personen'])assert.equal(parseMail(base+field,{receivedAt:'2026-11-22'}).draft.data.gondola,undefined);
+});

@@ -1,3 +1,4 @@
+import {isGondolaReservation,confirmGondolaReservation} from './public/gondolas.mjs';
 import {parseHTML} from 'linkedom';
 import {reservationMailDisclosure,bindReservationMailDisclosure} from './public/reservation-mail-history.mjs';
 import {reservationRemarks} from './public/day-list.mjs';
@@ -38,13 +39,27 @@ test('reservation form saves changed details, recovers after a failed save, and 
  const values={date:'2099-02-01',time:'18:00',people:'4',last:'Synthetic',first:'Anna',status:'Bestätigt',tableNo:'1, 2',note:'Changed',salutation:'Liebe'};
  const details=parseHTML(reservationMailDisclosure()).document.querySelector('details');
  const form={querySelector:()=>details,dataset:{},elements:{status:{value:'Bestätigt',disabled:false},salutation:{value:'Liebe'},first:{value:'Anna'}}};
- const els={'#reservation':form,'#save':{textContent:'Speichern',disabled:false},'#save-error':{textContent:'',scrollIntoView:()=>{}},'#close':{},'#cancel':{},'#capacity':{},'#table-group-info':{}};let calls=[],fail=false,closed=false;
+ const els={'#reservation':form,'#save':{textContent:'Speichern',disabled:false},'#save-error':{textContent:'',scrollIntoView:()=>{}},'#close':{},'#cancel':{},'#capacity':{},'#table-group-info':{}};let calls=[],operations=[],questions=[],acceptGondola=false,html='',fail=false,closed=false;
  class FormDataMock{constructor(f){this.data={...values};if(f.elements.status.disabled)delete this.data.status;}get(k){return this.data[k]||null;}}
- const ctx={reservationMailDisclosure,bindReservationMailDisclosure,reservationRemarks,tableGroupHint,crypto:{randomUUID:()=> 'synthetic-new'},guest:r=>JSON.parse(r.data),e:s=>String(s||''),field:()=>'',hideFloorPreview:()=>{},dialog:{set innerHTML(v){},close:()=>closed=true,showModal:()=>{}},$:s=>els[s],bindFormTablePicker:()=>{},FormData:FormDataMock,rows:[],date:'2099-02-01',period:()=> 'abend',canConfirm:()=>true,tableAssignments,displayNote:s=>s,load:async()=>{},render:()=>{},notice:()=>{},confirmationPanel:()=>'',updateReplyPreview:()=>{},suggestSalutation:()=> 'Liebe',mailSettings:{signature:''},rpc:async(n,p)=>{if(fail)throw Error('Validation failed');calls.push(p.payload.reservation);},req:async(n,p)=>calls.push(p.body.reservation)};
+ const ctx={isGondolaReservation,confirmGondolaReservation,window:{confirm:message=>{questions.push(message);return acceptGondola;}},reservationMailDisclosure,bindReservationMailDisclosure,reservationRemarks,tableGroupHint,crypto:{randomUUID:()=> 'synthetic-new'},guest:r=>JSON.parse(r.data),e:s=>String(s||''),field:()=>'',hideFloorPreview:()=>{},dialog:{set innerHTML(v){html=v;},close:()=>closed=true,showModal:()=>{}},$:s=>els[s],bindFormTablePicker:()=>{},FormData:FormDataMock,rows:[],date:'2099-02-01',period:()=> 'abend',canConfirm:()=>true,tableAssignments,displayNote:s=>s,load:async()=>{},render:()=>{},notice:()=>{},confirmationPanel:()=>'',updateReplyPreview:()=>{},suggestSalutation:()=> 'Liebe',mailSettings:{signature:''},rpc:async(n,p)=>{if(fail)throw Error('Validation failed');operations.push(n);calls.push(p.payload?.reservation||p.p?.reservation);},req:async(n,p)=>{operations.push('mail-send');calls.push(p.body.reservation);}};
  vm.createContext(ctx);vm.runInContext(code,ctx);const booking={id:'synthetic',revision:2,date:values.date,time:values.time,people:4,status:'Bestätigt',data:'{}'};
  ctx.edit(booking);await form.onsubmit({preventDefault:()=>{},target:form});assert.equal(calls[0].tableNo,'1, 2');assert.equal(calls[0].note,'Changed');assert.equal(closed,true);assert.equal(els['#save'].disabled,false);
  fail=true;closed=false;ctx.edit(booking);await form.onsubmit({preventDefault:()=>{},target:form});assert.equal(closed,false);assert.equal(els['#save-error'].textContent,'Validation failed');assert.equal(els['#save'].disabled,false);
  fail=false;ctx.edit(booking,null,{editReply:true});await form.onsubmit({preventDefault:()=>{},target:form});assert.equal(calls.at(-1).status,'Bestätigt');assert.equal(form.elements.status.disabled,true);
+ // The same edit form supports saving an open gondola without sending or confirming.
+ ctx.rows=[{...booking,status:'Offen',gondola:1}];values.gondola='on';values.tableNo='';
+ ctx.edit({...booking,gondola:1},'incoming',{editReply:true});
+ assert(html.includes('name="gondola" checked'));assert(html.includes('id="save-without-reply"'));assert(html.includes('Nur speichern – ohne Antwort'));
+ const before=operations.length;closed=false;
+ await form.onsubmit({preventDefault(){},target:form});
+ assert.deepEqual(questions,['Reservation in der Gondel OK?']);assert.equal(operations.length,before);assert.equal(closed,false);assert.equal(els['#save'].disabled,false);
+ const saveOnly={id:'save-without-reply',textContent:'Nur speichern – ohne Antwort',disabled:false};
+ await form.onsubmit({preventDefault(){},target:form,submitter:saveOnly});
+ assert.equal(operations.at(-1),'mail_review');assert.equal(calls.at(-1).status,'Offen');assert.equal(calls.at(-1).gondola,true);assert.equal(questions.length,1);assert.equal(saveOnly.disabled,false);assert.equal(closed,true);
+ // Only the explicit confirmation action asks and sends after OK.
+ ctx.edit({...booking,gondola:1},'incoming',{editReply:true});acceptGondola=true;
+ await form.onsubmit({preventDefault(){},target:form});assert.equal(operations.at(-1),'mail-send');assert.equal(calls.at(-1).status,'Bestätigt');assert.equal(questions.length,2);
+
 });
 
 test('always-active dragging preserves click and keyboard selection, ignores jitter and never selects after a drag',async()=>{

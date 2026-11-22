@@ -8,3 +8,7 @@ export function gondolaAvailability(rows,day){
  const free=scope=>Math.max(0,3-active.filter(r=>{const p=r.period||period(r.time);return p===scope||p==='ungeklaert';}).reduce((n,r)=>n+Math.max(1,tableAssignments(r.table_no||'').tables.filter(t=>/^G[123]$/.test(t)).length),0));
  const midday=free('mittag'),evening=free('abend');return {free:Math.min(midday,evening),midday,evening,total:3};
 }
+
+export function confirmGondolaReservation(r,ask){
+ return !isGondolaReservation({...r,table_no:r?.table_no||r?.tableNo||''})||ask('Reservation in der Gondel OK?');
+}

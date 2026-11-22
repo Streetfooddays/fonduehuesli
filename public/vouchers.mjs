@@ -1,4 +1,4 @@
-import {escapeHTML as e} from './core.mjs';
+import {guest, escapeHTML as e} from './core.mjs';
 
 const currency = new Intl.NumberFormat('de-CH', {style: 'currency', currency: 'CHF'});
 const amount = cents => currency.format(cents / 100);
@@ -10,9 +10,49 @@ function pdfLink(content) {
   return URL.createObjectURL(new Blob([bytes], {type: 'application/pdf'}));
 }
 
-export function renderVouchers(root, {req}) {
+export function voucherContact(booking, mail) {
+  const saved = booking ? guest(booking) : {};
+  const draft = mail?.draft?.data || {};
+  const contact = mail?.draft?.is_reply && booking ? saved : {...saved,
+    ...Object.fromEntries(Object.entries(draft).filter(([, value]) => typeof value === 'string' && value.trim())),
+  };
+  const street = String(contact.street || '').trim();
+  const address = street.match(/^(.+?)\s+(\d+[\p{L}]?(?:[-/]\d+[\p{L}]?)?)$/u);
+  const sender = String(mail?.sender || '').trim().match(/(?:<|^)([^\s<>@,]+@[^\s<>@,]+\.[^\s<>@,]+)>?$/)?.[1];
+  const person = [contact.first, contact.last].filter(Boolean).join(' ').trim();
+  return {
+    name: contact.company || person,
+    email: contact.email || sender || '',
+    street: address?.[1] || street,
+    building: address?.[2] || '',
+    postcode: contact.zip || '',
+    city: contact.city || '',
+  };
+}
+
+export function openVoucherDialog({req, booking, mail}) {
+  const dialog = document.createElement('dialog');
+  dialog.className = 'voucher-dialog';
+  dialog.setAttribute('aria-label', 'Gutschein erstellen');
+  dialog.innerHTML = '<div class="dialog-head"><h2>Gutschein erstellen</h2><button type="button" class="quiet" aria-label="Schliessen">✕</button></div><div data-voucher-body></div>';
+  document.body.append(dialog);
+  const dispose = renderVouchers(dialog.querySelector('[data-voucher-body]'), {
+    req, initialFields: voucherContact(booking, mail), inDialog: true,
+  });
+  function close() {
+    dispose();
+    if (dialog.open) dialog.close();
+    dialog.remove();
+  }
+  dialog.querySelector('.dialog-head button').onclick = close;
+  dialog.addEventListener('close', close, {once: true});
+  dialog.showModal();
+  return close;
+}
+
+export function renderVouchers(root, {req, initialFields = {}, inDialog = false}) {
   root.innerHTML = `<section class="card voucher-workspace">
-    <h2>Gutscheine</h2>
+    ${inDialog ? '' : '<h2>Gutscheine</h2>'}
     <form data-voucher-form>
       <fieldset class="voucher-fields">
         <legend>Rechnung und Gutschein erstellen</legend>
@@ -29,12 +69,16 @@ export function renderVouchers(root, {req}) {
     </form>
     <p data-voucher-message role="status" aria-live="polite" hidden></p>
     <section data-voucher-preview hidden></section>
-    <section class="voucher-history">
+    ${inDialog ? '' : `<section class="voucher-history">
       <h3>Zuletzt erstellte Gutscheine</h3>
       <div data-voucher-history aria-live="polite"></div>
-    </section>
+    </section>`}
   </section>`;
   const form = root.querySelector('[data-voucher-form]');
+  for (const [name, value] of Object.entries(initialFields)) {
+    const field = form.querySelector(`[name="${name}"]`);
+    if (field) field.value = value;
+  }
   const message = root.querySelector('[data-voucher-message]');
   const preview = root.querySelector('[data-voucher-preview]');
   const history = root.querySelector('[data-voucher-history]');
@@ -95,6 +139,7 @@ export function renderVouchers(root, {req}) {
       const result = await request({action: 'send', id: row.id});
       if (!result.sent_at) throw new Error('Der Versand wurde noch nicht bestätigt.');
       row.sent_at = result.sent_at;
+      if (disposed) return;
       preview.querySelector('[data-voucher-send-state]').textContent = 'Versendet an ' + row.email;
       showMessage('Gutschein und Rechnung wurden zum Versand angenommen.');
       await refreshHistory();
@@ -104,6 +149,7 @@ export function renderVouchers(root, {req}) {
   }
 
   async function refreshHistory() {
+    if (!history || disposed) return;
     try {
       const rows = await request({action: 'list'});
       if (disposed) return;
@@ -128,7 +174,7 @@ export function renderVouchers(root, {req}) {
     busy = on;
     submit.disabled = on;
     fields.disabled = on;
-    history.querySelectorAll('button').forEach(button => {button.disabled = on;});
+    history?.querySelectorAll('button').forEach(button => {button.disabled = on;});
     const send = preview.querySelector('[data-voucher-send]');
     if (send) send.disabled = on || !!opened?.sent_at;
   }

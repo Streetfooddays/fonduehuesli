@@ -1,7 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {parseHTML} from 'linkedom';
-import {reservationMailIndex,reservationMailButton,reservationMailHistoryHTML,openReservationMailHistory} from './public/reservation-mail-history.mjs';
+import {reservationMailIndex,reservationMailButton,reservationMailHistoryHTML,openReservationMailHistory,loadReservationMailHistory,reservationMailDisclosure,bindReservationMailDisclosure} from './public/reservation-mail-history.mjs';
 import {renderExcelOverview} from './public/excel-overview.mjs';
 const booking=(id,date='2026-12-10')=>({id,date,time:'19:00',people:4,status:'Bestätigt',data:JSON.stringify({first:'Anna',last:'Muster',email:'anna@example.test'})});
 test('only associated received or actually sent mail creates the envelope',()=>{
@@ -32,4 +32,33 @@ test('history dialog reads incoming and outgoing bodies and does not mutate rese
  const {document}=parseHTML('<dialog></dialog>'),dialog=document.querySelector('dialog');dialog.close=()=>dialog.open=false;dialog.showModal=()=>dialog.open=true;const requests=[];
  await openReservationMailHistory(dialog,booking('a'),[{id:'m',type:'incoming'},{id:'s',type:'confirmation'},{id:'r',type:'reply'}],async url=>{requests.push(url);return [{id:url.includes('mail_inbox')?'m':'s',sender:'Guest',recipient:'Guest',subject:'Reservation',body:'Original inquiry',message_text:'Sent reply'}];});
  assert.equal(requests.length,3);assert(requests.some(s=>s.includes('mail_replies')));assert(dialog.textContent.includes('Original inquiry'));assert(dialog.textContent.includes('Sent reply'));assert.equal(dialog.querySelectorAll('.reservation-mail-message').length,3);
+});
+
+test('complete history paginates past recent inbox and keeps other bookings separate',async()=>{
+ const a=booking('a'),b=booking('b','2026-12-11'),calls=[];
+ const messages=await loadReservationMailHistory(a,[a,b],async path=>{
+  calls.push(path);const u=new URL(path,'https://test.invalid');
+  if(u.searchParams.has('offset')){
+   if(u.pathname.endsWith('mail_inbox'))return u.searchParams.get('offset')==='0'?Array.from({length:1000},(_,i)=>({id:'other'+i,reservation_id:'b'})):[{id:'old',reservation_id:'a',received_at:'2026-10-01'}];
+   if(u.pathname.endsWith('mail_outbox'))return [{id:'confirmation',reservation_id:'a',mail_id:'old',state:'sent',sent_at:'2026-10-02'}];
+   return [{id:'reply',mail_id:'old',state:'sent',sent_at:'2026-10-03'}];
+  }
+  const id=u.searchParams.get('id').slice(3);return [{id,body:'Original '+id,message_text:'Gesendet '+id}];
+ });
+ assert.deepEqual(messages.map(m=>m.id),['old','confirmation','reply']);
+ assert(calls.some(path=>path.includes('offset=1000')));assert.equal(calls.filter(path=>!path.includes('offset=')).length,3);
+});
+test('editing history preserves unsaved fields and permits retry after a read failure',async()=>{
+ const {document}=parseHTML('<form><input name="note" value="Ungespeicherte Änderung">'+reservationMailDisclosure()+'</form>');
+ const details=document.querySelector('[data-booking-mail-history]');let calls=0;
+ bindReservationMailDisclosure(details,async()=>{calls++;if(calls===1)throw Error('Verbindung unterbrochen');return [{type:'incoming',body:'Gesamte Anfrage'},{type:'reply',message_text:'Unsere Antwort'}];});
+ details.open=true;await details.ontoggle();assert.equal(details.querySelector('[role=alert]').textContent.includes('Verbindung unterbrochen'),true);
+ await details.querySelector('button').onclick();assert(details.textContent.includes('Gesamte Anfrage'));assert(details.textContent.includes('Unsere Antwort'));
+ assert.equal(document.querySelector('input').value,'Ungespeicherte Änderung');await details.ontoggle();assert.equal(calls,2);
+});
+test('an empty conversation has an explicit empty state in both views',async()=>{
+ const {document}=parseHTML('<dialog></dialog><section>'+reservationMailDisclosure()+'</section>');
+ const dialog=document.querySelector('dialog');dialog.close=()=>dialog.open=false;dialog.showModal=()=>dialog.open=true;
+ await openReservationMailHistory(dialog,booking('a'),[],null,async()=>[]);assert(dialog.textContent.includes('keine E-Mails hinterlegt'));
+ const details=document.querySelector('details');bindReservationMailDisclosure(details,async()=>[]);details.open=true;await details.ontoggle();assert(details.textContent.includes('keine E-Mails hinterlegt'));
 });

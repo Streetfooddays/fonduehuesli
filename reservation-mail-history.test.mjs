@@ -1,7 +1,7 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {parseHTML} from 'linkedom';
-import {reservationMailIndex,reservationMailButton,reservationMailHistoryHTML,openReservationMailHistory,loadReservationMailHistory,reservationMailDisclosure,bindReservationMailDisclosure} from './public/reservation-mail-history.mjs';
+import {reservationMailIndex,reservationMailButton,reservationMailHistoryHTML,openReservationMailHistory,loadReservationMailHistory,reservationMailDisclosure,bindReservationMailDisclosure,loadRequestMailHistory} from './public/reservation-mail-history.mjs';
 import {renderExcelOverview} from './public/excel-overview.mjs';
 const booking=(id,date='2026-12-10')=>({id,date,time:'19:00',people:4,status:'Bestätigt',data:JSON.stringify({first:'Anna',last:'Muster',email:'anna@example.test'})});
 test('only associated received or actually sent mail creates the envelope',()=>{
@@ -61,4 +61,19 @@ test('an empty conversation has an explicit empty state in both views',async()=>
  const dialog=document.querySelector('dialog');dialog.close=()=>dialog.open=false;dialog.showModal=()=>dialog.open=true;
  await openReservationMailHistory(dialog,booking('a'),[],null,async()=>[]);assert(dialog.textContent.includes('keine E-Mails hinterlegt'));
  const details=document.querySelector('details');bindReservationMailDisclosure(details,async()=>[]);details.open=true;await details.ontoggle();assert(details.textContent.includes('keine E-Mails hinterlegt'));
+});
+
+test('Excel request history includes older linked mail, replies and confirmations with full bodies',async()=>{
+ const a=booking('a'),b=booking('b','2026-12-11'),selected={id:'selected',draft:{is_reply:true,date:a.date,time:a.time,people:a.people,data:{email:'anna@example.test'}}};
+ const incoming=[{id:'original',reservation_id:'a',received_at:'2026-10-01'},selected,{id:'other',reservation_id:'b',received_at:'2026-10-02'}];
+ const confirmations=[{id:'confirm',reservation_id:'a',mail_id:'original',state:'sent',sent_at:'2026-10-03'}],replies=[{id:'answer',mail_id:'original',state:'sent',sent_at:'2026-10-02'},{id:'selected-answer',mail_id:'selected',state:'sent',sent_at:'2026-10-04'}];
+ const calls=[];const req=async path=>{calls.push(path);const u=new URL(path,'https://test.invalid'),table=u.pathname.split('/').at(-1);if(u.searchParams.has('offset'))return table==='mail_inbox'?incoming:table==='mail_outbox'?confirmations:replies;const id=u.searchParams.get('id').slice(3),meta=[...incoming,...confirmations,...replies].find(m=>m.id===id);return [{...meta,body:'Complete incoming '+id,message_text:'Complete sent '+id}];};
+ const result=await loadRequestMailHistory(selected,[a,b],req);
+ assert.equal(result.booking.id,'a');assert.equal(result.messages.length,5);assert(!result.messages.some(m=>m.id==='other'));assert(result.messages.some(m=>m.body==='Complete incoming original'));assert(result.messages.some(m=>m.message_text==='Complete sent answer'));assert.equal(calls.filter(path=>!path.includes('offset=')).length,5);
+ const {document}=parseHTML(reservationMailHistoryHTML(result.messages,{collapsible:false}));assert.equal(document.querySelectorAll('details').length,0);assert.equal(document.querySelectorAll('section').length,5);
+});
+test('ambiguous request history includes its own original and direct answer but no other booking mail',async()=>{
+ const selected={id:'selected',draft:{is_reply:true,data:{email:'anna@example.test'}}},a=booking('a'),b=booking('b','2026-12-11');
+ const req=async path=>{const u=new URL(path,'https://test.invalid'),table=u.pathname.split('/').at(-1);if(u.searchParams.has('offset'))return table==='mail_inbox'?[selected,{id:'a-mail',reservation_id:'a'},{id:'b-mail',reservation_id:'b'}]:table==='mail_replies'?[{id:'own-reply',mail_id:'selected',state:'sent'},{id:'other-reply',mail_id:'a-mail',state:'sent'}]:[];return [{id:u.searchParams.get('id').slice(3),body:'Full original',message_text:'Full reply'}];};
+ const result=await loadRequestMailHistory(selected,[a,b],req);assert.equal(result.kind,'ambiguous');assert.equal(result.booking,null);assert.deepEqual(result.messages.map(m=>m.id),['selected','own-reply']);
 });

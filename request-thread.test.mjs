@@ -17,7 +17,7 @@ test('quoted confirmation recipient can identify the guest instead of the restau
 });
 test('shared addresses and conflicting thread references never choose an arbitrary reservation',()=>{
  const mail={draft:{is_reply:true,date:booking.date,data:{email:'anna@example.invalid'}}};assert.equal(resolveRequestBooking(mail,[booking,{...booking,id:'other',time:'19:00'}]).kind,'ambiguous');
- assert.equal(resolveRequestBooking({draft:{is_reply:true,data:{email:'anna@example.invalid'}}},[booking]).kind,'none');
+ assert.equal(resolveRequestBooking({draft:{is_reply:true,data:{email:'anna@example.invalid'}}},[booking]).kind,'related');
  assert.equal(resolveRequestBooking(message('Danke'),[{...booking,status:'Storniert'}]).booking,null);
  assert.equal(resolveRequestBooking(message('Danke'),[{...booking,deleted_at:'now'}]).booking,null);
 });
@@ -38,3 +38,12 @@ test('restaurant instructions in a quoted confirmation do not become customer re
 });
 
 test('the compact inbox can retain direct navigation to the reservation day',()=>{const {document}=parseHTML(compactRequestHTML({id:'request',draft:{date:'2026-12-12',data:{}}},null,{dateLink:true}));assert.equal(document.querySelector('[data-request-day]').dataset.requestDay,'request');assert.match(document.querySelector('[data-request-day]').textContent,/12.12.2026/);});
+
+test('short date-free replies use a unique email or Swiss phone as a review-only match',()=>{
+ const short={draft:{is_reply:true,data:{email:'ANNA@example.invalid'}}};assert.equal(resolveRequestBooking(short,[booking]).kind,'related');
+ const duplicate={...booking,id:'another',date:'2026-12-20'};assert.equal(resolveRequestBooking(short,[booking,duplicate]).kind,'ambiguous');
+ const phoneBooking={...booking,data:JSON.stringify({first:'Anna',last:'Muster',phone:'079 123 45 67'})};
+ assert.equal(resolveRequestBooking({draft:{is_reply:true,data:{first:'Anna',last:'Muster',phone:'+41 79 123 45 67'}}},[phoneBooking]).booking.id,booking.id);
+ assert.equal(resolveRequestBooking({draft:{is_reply:true,data:{first:'Other',last:'Person',phone:'0791234567'}}},[phoneBooking]).kind,'none');
+ assert.equal(resolveRequestBooking({draft:{date:'2026-12-24',data:{email:'anna@example.invalid'}}},[booking]).kind,'none');
+});

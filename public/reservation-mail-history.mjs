@@ -17,25 +17,55 @@ export function reservationMailButton(booking,index){
 }
 const sentLabel=m=>m.type==='incoming'?'Eingegangen':m.type==='confirmation'?'Bestätigung gesendet':'Antwort gesendet';
 function timestamp(m){const value=m.received_at||m.sent_at||m.created,date=new Date(value);return value&&Number.isFinite(date.getTime())?new Intl.DateTimeFormat('de-CH',{dateStyle:'medium',timeStyle:'short',timeZone:'Europe/Zurich'}).format(date):'';}
-export function reservationMailHistoryHTML(messages){return messages.map(m=>`<details class="reservation-mail-message" open><summary>${e(sentLabel(m))}${timestamp(m)?` · ${e(timestamp(m))}`:''} · ${e(m.subject||'Ohne Betreff')}</summary><p>${m.type==='incoming'?'Von':'An'}: <strong>${e(m.type==='incoming'?m.sender:m.recipient)}</strong></p><pre class="mail-body">${e(m.type==='incoming'?m.body:m.message_text)}</pre></details>`).join('');}
+export function reservationMailHistoryHTML(messages,{collapsible=true}={}){return messages.map(m=>{
+ const heading=`${e(sentLabel(m))}${timestamp(m)?` · ${e(timestamp(m))}`:''} · ${e(m.subject||'Ohne Betreff')}`;
+ const body=`<p>${m.type==='incoming'?'Von':'An'}: <strong>${e(m.type==='incoming'?m.sender:m.recipient)}</strong></p><pre class="mail-body">${e(m.type==='incoming'?m.body:m.message_text)}</pre>`;
+ return collapsible?`<details class="reservation-mail-message" open><summary>${heading}</summary>${body}</details>`:`<section class="reservation-mail-message"><h4>${heading}</h4>${body}</section>`;
+}).join('');}
 
-// Read every metadata page so older conversations are not cut off by the inbox view.
-export async function loadReservationMailHistory(booking,rows,req){
- const readAll=async(table,fields,filter='')=>{
+
+async function readAll(req,table,fields,filter=''){
   const result=[];
   for(;;){
    const page=await req(`/rest/v1/${table}?select=${fields}${filter}&order=id.asc&limit=1000&offset=${result.length}`);
    result.push(...page);
    if(page.length<1000)return result;
   }
- };
+}
+
+// Read every metadata page so older conversations are not cut off by the inbox view.
+export async function loadReservationMailHistory(booking,rows,req){
  const [inbox,outbox,replies]=await Promise.all([
-  readAll('mail_inbox','id,sender,subject,draft,state,reservation_id,received_at'),
-  readAll('mail_outbox','id,reservation_id,mail_id,recipient,subject,state,created,sent_at','&state=eq.sent'),
-  readAll('mail_replies','id,mail_id,recipient,subject,state,created,sent_at','&state=eq.sent')
+  readAll(req,'mail_inbox','id,sender,subject,draft,state,reservation_id,received_at'),
+  readAll(req,'mail_outbox','id,reservation_id,mail_id,recipient,subject,state,created,sent_at','&state=eq.sent'),
+  readAll(req,'mail_replies','id,mail_id,recipient,subject,state,created,sent_at','&state=eq.sent')
  ]);
  const items=reservationMailIndex(rows,inbox,outbox,replies).get(booking.id)||[];
  return readMessages(items,req);
+}
+// Load all associated incoming and sent messages even when the selected mail has
+// not yet been linked. The caller has already parsed its complete original body.
+export async function loadRequestMailHistory(mail,rows,req){
+ const [inbox,outbox,replies]=await Promise.all([
+  readAll(req,'mail_inbox','id,sender,subject,draft,state,reservation_id,received_at'),
+  readAll(req,'mail_outbox','id,reservation_id,mail_id,recipient,subject,state,created,sent_at','&state=eq.sent'),
+  readAll(req,'mail_replies','id,mail_id,recipient,subject,state,created,sent_at','&state=eq.sent')
+ ]);
+ const selected={...(inbox.find(m=>m.id===mail.id)||{}),...mail};
+ const completeInbox=inbox.filter(m=>m.id!==mail.id).concat(selected);
+ let match=resolveRequestBooking(selected,rows);
+ if(match.kind==='none'){
+  const ids=[...new Set(outbox.filter(o=>o.mail_id===mail.id).map(o=>o.reservation_id))];
+  const candidates=rows.filter(r=>ids.includes(r.id)&&!r.deleted_at);
+  if(candidates.length===1)match={booking:candidates[0],kind:'related',candidates};
+ }
+ const items=match.booking?(reservationMailIndex(rows,completeInbox,outbox,replies).get(match.booking.id)||[]):[];
+ // Always retain the selected original and its direct replies, including ambiguous cases.
+ const add=item=>{if(!items.some(m=>m.id===item.id&&m.type===item.type))items.push(item);};
+ add({...selected,type:'incoming'});
+ for(const o of outbox)if(o.mail_id===mail.id)add({...o,type:'confirmation'});
+ for(const r of replies)if(r.mail_id===mail.id)add({...r,type:'reply'});
+ return {...match,messages:await readMessages(items,req)};
 }
 async function readMessages(items,req){
  const messages=await Promise.all(items.map(async item=>{

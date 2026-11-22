@@ -5,12 +5,12 @@ import {parseHTML} from 'linkedom';
 import {renderExcelWorkspace} from './public/excel-workspace.mjs';
 const row=(id,date='2099-01-01')=>({id,date,time:'18:00',people:4,status:'Offen',table_no:'1',data:JSON.stringify({first:'Anna',last:'Muster',email:'anna@example.invalid'})});
 const request=(id,booking=null)=>({id,reservation_id:booking?.id||null,received_at:'2098-12-01T10:00:00Z',state:booking?'imported':'review',sender:'Anna Muster <anna@example.invalid>',subject:'Synthetic request',issues:[],draft:booking?{date:booking.date,time:booking.time,people:booking.people,data:JSON.parse(booking.data)}:{date:'',time:'',people:null,data:{}}});
-function mount(t,{rows=[],inbox=[],body='',date='2099-01-01',saveOverride=null,deleteRequest=null,confirmOverride=null}={}){
+function mount(t,{rows=[],inbox=[],body='',date='2099-01-01',saveOverride=null,deleteRequest=null,confirmOverride=null,historyOverride=null}={}){
  const {window,document}=parseHTML('<html><body><main id="root"></main></body></html>');globalThis.window=window;globalThis.document=document;
  // LinkeDOM models DOM events. These three browser layout/dialog APIs are recorded rather than rendered.
  window.HTMLElement.prototype.scrollIntoView=function(){this.dataset.scrolled='true';};window.HTMLElement.prototype.showModal=function(){this.setAttribute('open','');};window.HTMLElement.prototype.close=function(){this.removeAttribute('open');};
  Object.defineProperty(window.HTMLSelectElement.prototype,'value',{get(){const value=this.getAttribute('data-test-value');if(value!==null)return value;const option=this.querySelector('option[selected]')||this.querySelector('option');return option?(option.getAttribute('value')??option.textContent):'';},set(v){this.setAttribute('data-test-value',v);},configurable:true});
- const state={rows,inbox,outbox:[],layouts:[]},calls=[];const saveReservation=async payload=>{calls.push(['save',structuredClone(payload)]);if(saveOverride)await saveOverride(payload,state);const i=state.rows.findIndex(r=>r.id===(payload.id||payload.createId)),old=state.rows[i]||{};const saved={...old,id:payload.id||payload.createId,date:payload.date,time:payload.time,people:payload.people,status:payload.status,table_no:payload.tableNo,note:payload.note,data:JSON.stringify(payload.data),revision:(old.revision||0)+1};if(i>=0)state.rows[i]=saved;else state.rows.push(saved);};const controller=renderExcelWorkspace(document.querySelector('#root'),{date,confirm:confirmOverride||(()=>{}),saveReservation,afterSave:async(p,id)=>state.rows.find(r=>r.id===(p.id||id)),getState:()=>state,needsAction:m=>!['confirmed','ignored'].includes(m.state),onDate(){},readMail:async()=>({body}),notice(){},replyOnly:id=>calls.push(['reply-only',id]),deleteReservation:id=>{calls.push(['delete-request',id]);deleteRequest?.(id);},editRequest:id=>calls.push(['edit',id]),transfer:async id=>{calls.push(['transfer',id]);return null;},ignore:async id=>{calls.push(['ignore',id]);state.inbox.find(m=>m.id===id).state='ignored';}});
+ const state={rows,inbox,outbox:[],layouts:[]},calls=[];const saveReservation=async payload=>{calls.push(['save',structuredClone(payload)]);if(saveOverride)await saveOverride(payload,state);const i=state.rows.findIndex(r=>r.id===(payload.id||payload.createId)),old=state.rows[i]||{};const saved={...old,id:payload.id||payload.createId,date:payload.date,time:payload.time,people:payload.people,status:payload.status,table_no:payload.tableNo,note:payload.note,data:JSON.stringify(payload.data),revision:(old.revision||0)+1};if(i>=0)state.rows[i]=saved;else state.rows.push(saved);};const controller=renderExcelWorkspace(document.querySelector('#root'),{date,...(historyOverride?{loadRequestHistory:historyOverride}:{}),confirm:confirmOverride||(()=>{}),saveReservation,afterSave:async(p,id)=>state.rows.find(r=>r.id===(p.id||id)),getState:()=>state,needsAction:m=>!['confirmed','ignored'].includes(m.state),onDate(){},readMail:async()=>({body}),notice(){},replyOnly:id=>calls.push(['reply-only',id]),deleteReservation:id=>{calls.push(['delete-request',id]);deleteRequest?.(id);},editRequest:id=>calls.push(['edit',id]),transfer:async id=>{calls.push(['transfer',id]);return null;},ignore:async id=>{calls.push(['ignore',id]);state.inbox.find(m=>m.id===id).state='ignored';}});
  t.after(()=>{controller.dispose();delete globalThis.window;delete globalThis.document;});return {document,state,calls,controller};
 }
 const tick=()=>new Promise(resolve=>setImmediate(resolve));
@@ -115,10 +115,10 @@ test('overcapacity is a visible warning and does not stop Excel autosave',async 
  assert.equal(calls.filter(c=>c[0]==='save').length,1);assert.equal(calls[0][1].people,7);assert.equal(calls[0][1].tableNo,'7, 77, 777');assert.match(tr.querySelector('.sheet-table-capacity').textContent,/7 Personen bei 6/);
 });
 
-test('request panel shows compact customer remarks while retaining the full original in a closed disclosure',async t=>{
+test('request panel shows customer remarks and the full original without opening a disclosure',async t=>{
  const body='Nachname: Muster\nVorname: Anna\nDatum: 01.01.2099\nUhrzeit: 18:00\nAnzahl Personen: 4\nE-Mail: anna@example.invalid\nTelefon: 01234\nBemerkungen: Ein Kinderstuhl bitte';
  const m=request('compact');const {document,calls}=mount(t,{inbox:[m],body});await tick();await tick();
- const panel=document.querySelector('#wb-request-content');assert.match(panel.querySelector('.request-summary').textContent,/Kinderstuhl/);assert.match(panel.querySelector('.request-summary').textContent,/01234/);assert.equal(panel.querySelector('.request-original').hasAttribute('open'),false);assert.equal(panel.querySelector('.wb-original-mail').textContent,body);assert.deepEqual(calls,[]);
+ const panel=document.querySelector('#wb-request-content');assert.match(panel.querySelector('.request-summary').textContent,/Kinderstuhl/);assert.match(panel.querySelector('.request-summary').textContent,/01234/);assert.equal(panel.querySelector('.request-original'),null);assert.equal(panel.querySelector('.wb-mail-history .mail-body').textContent,body);assert.deepEqual(calls,[]);
 });
 test('a changed reply highlights the original reservation without creating another row',async t=>{
  const existing={...row('original','2099-01-01'),people:4};const m=request('changed');m.subject='Re: Reservation';
@@ -131,4 +131,22 @@ test('confirmation review and errors remain visible in the request panel',async 
  const booking=row('approval'),m=request('approval-mail',booking);let outcome={outcome:'review'};
  const {document}=mount(t,{rows:[booking],inbox:[m],confirmOverride:async()=>outcome});await tick();document.querySelector('#wb-confirm').click();await tick();assert.match(document.querySelector('#wb-request-feedback').textContent,/manuelle Freigabe/);
  outcome={outcome:'error',message:'Versandverbindung unterbrochen.'};document.querySelector('#wb-confirm').click();await tick();assert.equal(document.querySelector('#wb-request-feedback').textContent,'Versandverbindung unterbrochen.');
+});
+
+test('selected request automatically shows the whole received and sent thread plus its matched booking',async t=>{
+ const r=row('matched'),m=request('thread',r);
+ const historyOverride=async()=>({booking:r,kind:'linked',candidates:[r],messages:[{type:'incoming',subject:'Anfrage',body:'Vollständige ursprüngliche Anfrage'},{type:'reply',subject:'Rückfrage',message_text:'Unsere vollständige Antwort'},{type:'incoming',subject:'Re: Rückfrage',body:'Vollständige Antwort des Gastes'},{type:'confirmation',message_text:'Unsere Bestätigung'}]});
+ const {document,calls}=mount(t,{rows:[r],inbox:[m],historyOverride});await tick();await tick();
+ const history=document.querySelector('[data-request-history]');assert.equal(history.querySelectorAll('.reservation-mail-message').length,4);assert.equal(history.querySelectorAll('details').length,0);assert(history.textContent.includes('Unsere vollständige Antwort'));assert(history.textContent.includes('Unsere Bestätigung'));assert.equal(document.querySelector('[data-request-booking]').dataset.requestBooking,'matched');assert.equal(document.querySelector('.sheet-current-request').dataset.sheetId,'matched');assert.deepEqual(calls,[]);
+});
+test('ambiguous requests offer reservation candidates without selecting or linking one',async t=>{
+ const a=row('a'),b=row('b','2099-02-01'),m=request('ambiguous');m.draft={is_reply:true,data:{email:'anna@example.invalid'}};
+ const {document,calls}=mount(t,{rows:[a,b],inbox:[m]});await tick();await tick();
+ assert.equal(document.querySelectorAll('[data-request-booking]').length,2);assert(document.querySelector('[data-request-match]').textContent.includes('Mehrere mögliche'));document.querySelector('[data-request-booking="b"]').click();assert.equal(document.querySelector('.sheet-current-request').dataset.sheetId,'b');assert.deepEqual(calls,[]);assert.equal(m.reservation_id,null);
+});
+test('switching requests ignores a slower previous history and allows retry after a history failure',async t=>{
+ let release;const gate=new Promise(resolve=>release=resolve),a=row('a'),b=row('b','2099-02-01'),m1=request('one',a),m2=request('two',b);let attempts=0;
+ const {document}=mount(t,{rows:[a,b],inbox:[m1,m2],historyOverride:async m=>{if(m.id==='one'){await gate;return {booking:a,messages:[{type:'incoming',body:'Old request thread'}]};}if(++attempts===1)throw Error('Connection lost');return {booking:b,messages:[{type:'incoming',body:'Current complete thread'}]};}});await tick();
+ const select=document.querySelector('#wb-request-select');select.value='two';select.onchange();await tick();await tick();assert(document.querySelector('[data-request-history][role=alert]'));release();await tick();assert(!document.querySelector('[data-request-history]').textContent.includes('Old request thread'));
+ document.querySelector('[data-request-history] button').click();await tick();await tick();assert(document.querySelector('[data-request-history]').textContent.includes('Current complete thread'));assert.equal(document.querySelector('[data-request-history]').hasAttribute('role'),false);
 });

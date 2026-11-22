@@ -1,6 +1,7 @@
 const norm=value=>String(value||'').normalize('NFKD').replace(/\p{M}/gu,'').toLowerCase().replace(/ß/g,'ss').replace(/[^\p{L}\d]/gu,'');
 const dataOf=row=>{try{return typeof row.data==='string'?JSON.parse(row.data||'{}'):row.data||{};}catch{return {};}};
 const keys=data=>[norm((data.first||'')+(data.last||'')),norm((data.last||'')+(data.first||''))].filter(Boolean);
+const phone=value=>{let n=String(value||'').replace(/\D/g,'');if(n.startsWith('0041'))n='0'+n.slice(4);else if(n.startsWith('41')&&n.length===11)n='0'+n.slice(2);return n.length>=9?n:'';};
 const email=value=>String(value||'').trim().toLowerCase();
 export function resolveRequestBooking(mail,rows){
  if(mail.reservation_id&&mail.draft?.is_reply&&mail.reservation_id==='mail-'+mail.id){const other=resolveRequestBooking({...mail,reservation_id:null},rows.filter(r=>r.id!==mail.reservation_id));if(other.booking||other.kind==='ambiguous')return {...other,kind:other.booking?'related':other.kind};}
@@ -16,6 +17,17 @@ export function resolveRequestBooking(mail,rows){
    // Keep the previous exact-match behavior for reservations without an arrival time.
    if(reference.people&&Number(reference.people)===Number(booking.people)&&!reference.time&&!booking.time)exact.set(booking.id,booking);
   }
+ }
+ // A short reply may omit all dates. Only a unique contact match is safe to show;
+ // keep it as related so confirmation and edits still require review.
+ if(!all.size&&(draft.is_reply||!references.some(r=>r.date))){
+  const contacts=references.map(r=>r.data||{});
+  for(const booking of rows){
+   if(booking.deleted_at||booking.status==='Storniert')continue;
+   const g=dataOf(booking);
+   if(contacts.some(d=>email(d.email)&&email(d.email)===email(g.email)||phone(d.phone)&&phone(d.phone)===phone(g.phone)&&(!keys(d).length||keys(g).some(k=>keys(d).includes(k)))))all.set(booking.id,booking);
+  }
+  if(all.size===1)return {booking:[...all.values()][0],kind:'related',candidates:[...all.values()]};
  }
  const preferred=exact.size?exact:all;if(preferred.size!==1)return {booking:null,kind:preferred.size?'ambiguous':'none',candidates:[...preferred.values()]};
  const booking=[...preferred.values()][0];

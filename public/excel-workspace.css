@@ -25,3 +25,5 @@ body.excel-workspace .wb-heading h2{min-width:0;overflow-wrap:anywhere}
  body.excel-workspace .wb-plan-launch{align-items:flex-end;justify-content:flex-end}
 }
 @media print{body.excel-workspace #app>.wrap{width:100%}}
+
+.wb-matched-reservation,.wb-mail-history{margin-top:1rem;border-top:1px solid var(--line);padding-top:.7rem}.wb-matched-reservation button{margin:.2rem 0;width:100%;text-align:left}.wb-mail-history .reservation-mail-message{margin:.6rem 0;padding:.55rem}.wb-mail-history h4{font-size:.8rem;margin:0 0 .35rem;overflow-wrap:anywhere}.wb-mail-history .mail-body{max-height:none;overflow:visible;font-size:.8rem;line-height:1.45;padding:.5rem;white-space:pre-wrap;overflow-wrap:anywhere}

@@ -1,3 +1,4 @@
+import {reservationMailHistoryHTML} from './reservation-mail-history.mjs';
 import {resolveRequestBooking} from './request-matching.mjs';
 import {compactRequestHTML} from './request-summary.mjs';
 import {parseMail} from './mail-core.mjs';
@@ -10,7 +11,7 @@ const validDay=d=>/^\d{4}-\d{2}-\d{2}$/.test(d||'');
 export function matchingRequestBooking(mail,rows){const match=resolveRequestBooking(mail,rows);return ['linked','exact'].includes(match.kind)?match.booking:null;}
 export function relatedRequestBooking(mail,rows){const match=resolveRequestBooking(mail,rows);return match.kind==='related'?match.booking:null;}
 export function requestSelection(mail,rows){
- const booking=matchingRequestBooking(mail,rows),draft=mail.draft||{};
+ const booking=matchingRequestBooking(mail,rows)||relatedRequestBooking(mail,rows),draft=mail.draft||{};
  return {kind:'mail',mailId:mail.id,booking,rowId:booking?.id||null,day:booking?.date||draft.date||'',time:booking?.time||draft.time||'',people:booking?.people??draft.people??0,tables:booking?.table_no||'',name:[(booking?guest(booking):draft.data)?.first,(booking?guest(booking):draft.data)?.last].filter(Boolean).join(' ')||'Anfrage ohne Namen'};
 }
 export function oldestRequestsFirst(items){return [...items].sort((a,b)=>(Date.parse(a.received_at)||0)-(Date.parse(b.received_at)||0)||String(a.id).localeCompare(String(b.id)));}
@@ -76,14 +77,22 @@ export function renderExcelWorkspace(root,api){
   const highlightId=activeBooking?.id||(mail?'request-preview-'+mail.id:null);const highlightKey=JSON.stringify([selectedMail,highlightId,activeBooking?.date||mail?.draft?.date]);sheet?.setCurrentRequest(highlightId,{scroll:highlightedMail!==highlightKey});highlightedMail=highlightKey;
   if(!mail){displayedMail=null;$('#wb-request-content').innerHTML='<p class="muted">Keine offenen Reservationsanfragen.</p>';$('#wb-request-actions').innerHTML='';return;}
   $('#wb-request-select').value=selectedMail;
-  const ctx=requestSelection(mail,s.rows),d=ctx.booking?guest(ctx.booking):mail.draft?.data||{},contentSignature=JSON.stringify([mail.id,mail.state,mail.draft,ctx.booking?.revision,[...s.outbox,...(s.replies||[])].map(o=>[o.id,o.state])]);
+  const ctx=requestSelection(mail,s.rows),d=ctx.booking?guest(ctx.booking):mail.draft?.data||{},contentSignature=JSON.stringify([mail.id,mail.state,mail.draft,ctx.booking?.revision,[...s.outbox,...(s.replies||[])].map(o=>[o.id,o.state]),s.inbox.map(m=>[m.id,m.reservation_id,m.state,m.draft]),s.rows.map(r=>[r.id,r.revision])]);
   if(displayedMail===mail.id&&$('#wb-request-content').dataset.signature===contentSignature)return;
-  const originalOpen=displayedMail===mail.id&&!!$('#wb-request-content .request-original')?.open;displayedMail=mail.id;$('#wb-request-content').dataset.signature=contentSignature;
-  const linked=!!mail.reservation_id,duplicate=!linked&&!!ctx.booking,related=relatedRequestBooking(mail,s.rows),queued=s.outbox.find(o=>o.state!=='sent'&&(o.mail_id===mail.id||o.reservation_id===ctx.booking?.id));
-  $('#wb-request-content').innerHTML=compactRequestHTML(mail,ctx.booking||related,{originalClass:'wb-original-mail',originalOpen})+(duplicate?'<p class="hint">Passender Eintrag bereits vorhanden. Beim Übernehmen wird die Anfrage damit verknüpft.</p>':related?'<p class="hint">Passende bestehende Reservation gefunden. Abweichende Angaben bitte prüfen.</p>':'')+(resolveRequestBooking(mail,s.rows).kind==='ambiguous'?'<p class="hint">Mehrere passende Reservationen gefunden. Bitte manuell zuordnen.</p>':'')+(mail.issues?.length?`<details class="wb-review"><summary>Prüfhinweise (${mail.issues.length})</summary>${mail.issues.map(e).join('<br>')}</details>`:'');
+  displayedMail=mail.id;$('#wb-request-content').dataset.signature=contentSignature;
+  const linked=!!mail.reservation_id,related=relatedRequestBooking(mail,s.rows),duplicate=!linked&&!!ctx.booking&&!related,queued=s.outbox.find(o=>o.state!=='sent'&&(o.mail_id===mail.id||o.reservation_id===ctx.booking?.id));
+  $('#wb-request-content').innerHTML=compactRequestHTML(mail,ctx.booking||related,{includeOriginal:false})+(duplicate?'<p class="hint">Passender Eintrag bereits vorhanden. Beim Übernehmen wird die Anfrage damit verknüpft.</p>':related?'<p class="hint">Passende bestehende Reservation gefunden. Abweichende Angaben bitte prüfen.</p>':'')+(resolveRequestBooking(mail,s.rows).kind==='ambiguous'?'<p class="hint">Mehrere passende Reservationen gefunden. Bitte manuell zuordnen.</p>':'')+(mail.issues?.length?`<details class="wb-review"><summary>Prüfhinweise (${mail.issues.length})</summary>${mail.issues.map(e).join('<br>')}</details>`:'');
   if(ctx.booking&&((mail.draft?.date&&mail.draft.date!==ctx.booking.date)||(mail.draft?.time&&mail.draft.time!==ctx.booking.time)||(mail.draft?.people&&Number(mail.draft.people)!==Number(ctx.booking.people))))$('#wb-request-content').insertAdjacentHTML('beforeend',`<p class="hint">Neuere Angaben im Mail: ${e(mail.draft.date||'Datum offen')} · ${e(mail.draft.time||'Zeit offen')} · ${e(mail.draft.people||'?')} Personen. Bitte über «Reservation bearbeiten» prüfen.</p>`);
   const replies=(s.replies||[]).filter(r=>r.mail_id===mail.id),pendingReply=replies.find(r=>r.state!=='sent'),lastReply=replies.find(r=>r.state==='sent');
   if(lastReply)$('#wb-request-content').insertAdjacentHTML('beforeend',`<p class="muted">Antwort bereits gesendet${lastReply.sent_at?' · '+e(new Intl.DateTimeFormat('de-CH',{dateStyle:'short',timeStyle:'short',timeZone:'Europe/Zurich'}).format(new Date(lastReply.sent_at))):''}. Die Anfrage bleibt offen.</p>`);
+  $('#wb-request-content').insertAdjacentHTML('beforeend','<section class="wb-matched-reservation" aria-label="Passende Reservation"><h3>Passende Reservation im Buch</h3><div data-request-match></div></section><section class="wb-mail-history" aria-label="Gesamter Mailverlauf"><h3>Gesamter Mailverlauf</h3><div data-request-history role="status">Mailverlauf wird geladen …</div></section>');
+  function showMatch(match){
+   const host=$('[data-request-match]'),booking=match.booking;
+   const label=r=>{const g=guest(r);return `${[g.first,g.last].filter(Boolean).join(' ')||g.company||'Reservation'} · ${String(r.date||'').split('-').reverse().join('.')} · ${r.time||'Zeit offen'} · ${r.people} Personen · ${r.status}${r.table_no?' · Tisch '+r.table_no:''}`;};
+   host.innerHTML=booking?`<p>${e(label(booking))}</p><button type="button" class="secondary small" data-request-booking="${e(booking.id)}">Reservation in der Liste anzeigen</button>`:match.kind==='ambiguous'?'<p class="hint">Mehrere mögliche Reservationen. Bitte den passenden Eintrag ansehen und prüfen.</p>'+match.candidates.map(r=>`<button type="button" class="secondary small" data-request-booking="${e(r.id)}">${e(label(r))}</button>`).join(''):'<p class="muted">Keine passende Reservation gefunden. Die Anfrage ist noch keinem Eintrag zugeordnet.</p>';
+   host.querySelectorAll('[data-request-booking]').forEach(button=>button.onclick=()=>{if(!actionAllowed())return;if(sheet.focusReservation(button.dataset.requestBooking))sheet.setCurrentRequest(button.dataset.requestBooking);});
+  }
+  showMatch(resolveRequestBooking(mail,s.rows));
   const showBooking=ctx.booking||related;
   $('#wb-request-actions').innerHTML=`${!linked?`<button type="button" class="secondary small" id="wb-transfer">${duplicate?'Mit Eintrag verknüpfen':related?'Abweichung prüfen':'In Liste übernehmen'}</button>`:''}<button type="button" class="secondary small" id="wb-show-booking" title="${showBooking?'Bestehenden Eintrag in der Excel-Liste anzeigen':'Anfrage als Vorschau anzeigen, ohne eine Reservation anzulegen'}">In der Liste anzeigen</button><button type="button" class="small" id="wb-confirm" ${queued?'disabled':''}>${related?'Bestehende Reservation prüfen':'Bestätigen & Mail senden'}</button><button type="button" class="secondary small" id="wb-edit-reply" ${queued?'disabled':''}>Antwort bearbeiten</button><button type="button" class="secondary small" id="wb-reply-only" ${pendingReply?'disabled':''}>Nur antworten</button>${pendingReply?'<button type="button" class="secondary small" id="wb-retry-reply">Antwortversand erneut versuchen</button>':''}<button type="button" class="quiet small" id="wb-edit-request">Reservation bearbeiten</button><button type="button" class="quiet small" id="wb-ignore" ${queued?'disabled':''} title="Nur die Anfrage ablegen. Die Reservation bleibt erhalten. Es wird keine E-Mail versendet.">Ignorieren</button>${queued?'<button type="button" class="small" id="wb-retry">Versand erneut versuchen</button>':''}`;
   $('#wb-reply-only').onclick=()=>{if(actionAllowed())api.replyOnly(mail.id);};if(pendingReply)$('#wb-retry-reply').onclick=async()=>{if(!actionAllowed())return;try{await api.retryReply(pendingReply.id);}catch(err){message(err.message);}};
@@ -96,8 +105,13 @@ export function renderExcelWorkspace(root,api){
    if(!bodyCache.has(mail.id)){const original=await api.readMail(mail.id);bodyCache.set(mail.id,original.body||'');}
    const current=state().inbox.find(m=>m.id===mail.id);
    if(current){const enriched=enrichRequestDraft(current,bodyCache.get(mail.id));if(JSON.stringify([enriched.draft,enriched.issues])!==JSON.stringify([current.draft,current.issues])){Object.assign(current,enriched);if(!disposed&&selectedMail===mail.id){displayedMail=null;drawRequests();choose(requestSelection(current,state().rows));return;}}}
-   if(!disposed&&token===bodyToken&&selectedMail===mail.id)$('#wb-request-content .wb-original-mail').textContent=bodyCache.get(mail.id);
-  }catch(err){if(!disposed&&token===bodyToken)$('#wb-request-content .wb-original-mail').textContent=err.message;}})();
+   const result=api.loadRequestHistory?await api.loadRequestHistory(current||mail):{...resolveRequestBooking(current||mail,state().rows),messages:[{...mail,type:'incoming',body:bodyCache.get(mail.id)}]};
+   if(disposed||token!==bodyToken||selectedMail!==mail.id)return;
+   showMatch(result);
+   const history=$('[data-request-history]');history.removeAttribute('role');history.innerHTML=reservationMailHistoryHTML(result.messages,{collapsible:false});
+   if(result.booking){const key=JSON.stringify([mail.id,result.booking.id,result.booking.date]);sheet.setCurrentRequest(result.booking.id,{scroll:highlightedMail!==key});highlightedMail=key;}
+
+   }catch(err){if(!disposed&&token===bodyToken&&selectedMail===mail.id){const history=$('[data-request-history]');history.setAttribute('role','alert');history.textContent='Der vollständige Mailverlauf konnte nicht geladen werden: '+err.message;const retry=document.createElement('button');retry.type='button';retry.className='secondary small';retry.textContent='Mailverlauf erneut laden';retry.onclick=()=>{displayedMail=null;drawRequests();};history.appendChild(retry);}}})();
  }
  async function runRequest(action){
   if(!actionAllowed())return;

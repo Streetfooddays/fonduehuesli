@@ -1,0 +1,20 @@
+.voucher-workspace { padding: clamp(16px, 3vw, 28px); }
+.voucher-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 18px; padding: 0; border: 0; }
+.voucher-fields legend { margin-bottom: 12px; font-weight: 700; }
+.voucher-fields label { display: grid; align-content: start; gap: 6px; }
+.voucher-fields :is(input, textarea) { width: 100%; box-sizing: border-box; }
+.voucher-wide { grid-column: 1 / -1; }
+.voucher-review-heading, .voucher-history-row, .voucher-send { display: flex; align-items: center; flex-wrap: wrap; justify-content: space-between; gap: 10px 18px; }
+.voucher-review-heading { margin-top: 24px; }
+.voucher-review-heading p { margin-top: 4px; overflow-wrap: anywhere; }
+.voucher-pdfs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.voucher-pdfs h4 { margin: 0 0 8px; }
+.voucher-pdfs iframe { display: block; width: 100%; height: clamp(310px, 60vh, 680px); border: 1px solid #d6cbc0; border-radius: 6px; background: #fff; }
+.voucher-pdfs a { display: inline-block; margin: 8px 20px 0 0; }
+.voucher-send { margin-top: 18px; }
+.voucher-history { margin-top: 24px; }
+.voucher-history-row { padding: 10px 0; border-top: 1px solid #e2d8cf; }
+.voucher-history-row span { display: block; }
+@media (max-width: 680px) {
+  .voucher-fields, .voucher-pdfs { grid-template-columns: minmax(0, 1fr); }
+}

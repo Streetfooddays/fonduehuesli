@@ -45,7 +45,7 @@ export function openVoucherDialog({req, booking, mail, orderFields, onMailArchiv
   const {comment = '', ...order} = orderFields || {};
   const initialFields = {...voucherContact(booking, mail), ...Object.fromEntries(Object.entries(order).filter(([, value]) => value))};
   const dispose = renderVouchers(dialog.querySelector('[data-voucher-body]'), {
-    req, initialFields, inDialog: true, mailId: mail?.id, onMailArchived, comment, sentVoucher,
+    req, initialFields, inDialog: true, mailId: mail?.id, onMailArchived, comment, sentVoucher, onClose: close,
   });
   function close() {
     dispose();
@@ -58,7 +58,7 @@ export function openVoucherDialog({req, booking, mail, orderFields, onMailArchiv
   return close;
 }
 
-export function renderVouchers(root, {req, initialFields = {}, inDialog = false, mailId = null, onMailArchived, comment = '', sentVoucher}) {
+export function renderVouchers(root, {req, initialFields = {}, inDialog = false, mailId = null, onMailArchived, comment = '', sentVoucher, onClose}) {
   root.innerHTML = `<section class="card voucher-workspace">
     ${inDialog ? '' : '<h2>Gutscheine</h2>'}
     ${comment ? `<aside class="hint voucher-order-comment"><strong>Kommentar aus der Bestellung</strong><div>${e(comment)}</div></aside>` : ''}
@@ -77,6 +77,7 @@ export function renderVouchers(root, {req, initialFields = {}, inDialog = false,
       <div class="actions"><button type="submit">PDFs erstellen und ansehen</button></div>
     </form>
     <p data-voucher-message role="status" aria-live="polite" hidden></p>
+    <section data-voucher-receipt aria-label="Versandbestätigung" hidden></section>
     <section data-voucher-preview hidden></section>
     ${inDialog ? '' : `<section class="voucher-history">
       <h3>Zuletzt erstellte Gutscheine</h3>
@@ -90,6 +91,8 @@ export function renderVouchers(root, {req, initialFields = {}, inDialog = false,
   }
   const message = root.querySelector('[data-voucher-message]');
   const preview = root.querySelector('[data-voucher-preview]');
+  const receipt = root.querySelector('[data-voucher-receipt]');
+  const orderComment = root.querySelector('.voucher-order-comment');
   const history = root.querySelector('[data-voucher-history]');
   const fields = form.querySelector('fieldset');
   const submit = form.querySelector('button');
@@ -111,9 +114,51 @@ export function renderVouchers(root, {req, initialFields = {}, inDialog = false,
     urls = [];
   }
 
-  function showPreview(row, scroll = true) {
+  function returnToForm() {
+    receipt.replaceChildren();
+    receipt.hidden = true;
+    form.hidden = false;
+    if (orderComment) orderComment.hidden = false;
+    form.querySelector('input').focus();
+  }
+
+  function showReceipt(row, archived = false) {
     if (disposed) return;
     releaseLinks();
+    preview.replaceChildren();
+    preview.hidden = true;
+    form.hidden = true;
+    if (orderComment) orderComment.hidden = true;
+    receipt.hidden = false;
+    receipt.innerHTML = `<h3 tabindex="-1">Gutscheinversand bestätigt</h3>
+      <p>Der Maildienst hat Gutschein und Rechnung zum Versand angenommen.</p>
+      <dl>
+        <div><dt>Empfänger</dt><dd>${e(row.email)}</dd></div>
+        <div><dt>Versandzeit</dt><dd><time datetime="${e(row.sent_at)}">${e(sentTime.format(new Date(row.sent_at)))}</time></dd></div>
+        <div><dt>Gutschein</dt><dd>${e(row.voucher_no)} · ${e(amount(row.amount_cents))}</dd></div>
+        <div><dt>Rechnung</dt><dd>${e(row.invoice_no)}</dd></div>
+      </dl>
+      ${archived ? '<p>Die Mailanfrage wurde als erledigt abgelegt.</p>' : ''}
+      <div class="actions">
+        <button type="button" class="secondary" data-receipt-pdfs>PDFs ansehen</button>
+        <button type="button" data-receipt-done>Schliessen</button>
+      </div>`;
+    receipt.querySelector('[data-receipt-pdfs]').onclick = () => run(async () => {
+      const documents = row.documents ? row : await request({action: 'preview', id: row.id});
+      showPreview(documents, true, () => showReceipt(row, archived));
+    });
+    receipt.querySelector('[data-receipt-done]').onclick = () => {
+      if (busy) return;
+      if (inDialog) onClose?.();
+      else returnToForm();
+    };
+    receipt.querySelector('h3').focus();
+  }
+
+  function showPreview(row, scroll = true, backToReceipt) {
+    if (disposed) return;
+    releaseLinks();
+    receipt.hidden = true;
     opened = row;
     const documents = [
       {title: 'Gutschein', no: row.voucher_no, url: pdfLink(row.documents.voucher)},
@@ -129,7 +174,7 @@ export function renderVouchers(root, {req, initialFields = {}, inDialog = false,
     <div class="voucher-review-heading">
       <div><h3 tabindex="-1">Vorschau · ${e(row.voucher_no)}</h3>
       <p>${e(amount(row.amount_cents))} · ${e(row.name)}<br>Versand an <strong>${e(row.email)}</strong></p></div>
-      ${sentVoucher ? '' : '<button type="button" class="quiet small" data-voucher-close>Vorschau schliessen</button>'}
+      ${sentVoucher ? '' : `<button type="button" class="quiet small" data-voucher-close>${backToReceipt ? 'Zur Versandbestätigung' : 'Vorschau schliessen'}</button>`}
     </div>
     <div class="voucher-pdfs">${documents.map(doc => `<section>
       <h4>${doc.title}</h4>
@@ -137,9 +182,9 @@ export function renderVouchers(root, {req, initialFields = {}, inDialog = false,
       <a href="${doc.url}" target="_blank" rel="noopener">PDF öffnen</a>
       <a href="${doc.url}" download="${doc.title}-${e(doc.no)}.pdf">Herunterladen</a>
     </section>`).join('')}</div>
-    ${sentVoucher ? '' : `<div class="voucher-send actions">
+    ${sentVoucher || row.sent_at ? '' : `<div class="voucher-send actions">
       <span data-voucher-send-state>${e(status(row))}</span>
-      <button type="button" data-voucher-send ${row.sent_at ? 'hidden disabled' : ''}>Versand</button>
+      <button type="button" data-voucher-send>Versand</button>
     </div>`}`;
     if (sentVoucher) return;
     preview.querySelector('[data-voucher-close]').onclick = () => {
@@ -148,20 +193,19 @@ export function renderVouchers(root, {req, initialFields = {}, inDialog = false,
       opened = null;
       preview.replaceChildren();
       preview.hidden = true;
+      backToReceipt?.();
     };
     const send = preview.querySelector('[data-voucher-send]');
-    send.onclick = () => run(async () => {
+    if (send) send.onclick = () => run(async () => {
       const result = await request({action: 'send', id: row.id});
       if (!result.sent_at) throw new Error('Der Versand wurde noch nicht bestätigt.');
       row.sent_at = result.sent_at;
       if (result.voucher_sent_at) onMailArchived?.(result);
       if (disposed) return;
-      preview.querySelector('[data-voucher-send-state]').textContent = 'Versendet an ' + row.email;
-      showMessage(result.voucher_sent_at ? 'Gutschein und Rechnung wurden zum Versand angenommen. Die Mailanfrage ist erledigt.' : 'Gutschein und Rechnung wurden zum Versand angenommen.');
-      if (mailId && result.voucher_sent_at) submit.hidden = true;
+      showReceipt(row, !!result.voucher_sent_at);
       await refreshHistory();
     });
-    if (busy) send.disabled = true;
+    if (busy && send) send.disabled = true;
     if (scroll) preview.querySelector('h3').focus();
   }
 
@@ -177,10 +221,17 @@ export function renderVouchers(root, {req, initialFields = {}, inDialog = false,
       history.innerHTML = rows.map(row => `<div class="voucher-history-row">
         <div><strong>${e(row.voucher_no)} · ${e(row.name)}</strong>
         <span>${e(date(row.issued_on))} · ${e(amount(row.amount_cents))} · ${e(status(row))}</span></div>
-        <button type="button" class="secondary small" data-voucher-open="${e(row.id)}" ${busy ? 'disabled' : ''}>Ansehen</button>
+        <button type="button" class="secondary small" data-voucher-open="${e(row.id)}" ${busy ? 'disabled' : ''}>${row.sent_at ? 'Versandbestätigung' : 'Ansehen'}</button>
       </div>`).join('');
       history.querySelectorAll('[data-voucher-open]').forEach(button => {
-        button.onclick = () => run(async () => showPreview(await request({action: 'preview', id: button.dataset.voucherOpen})));
+        const row = rows.find(item => item.id === button.dataset.voucherOpen);
+        button.onclick = () => run(async () => {
+          if (row.sent_at) showReceipt(row);
+          else {
+            returnToForm();
+            showPreview(await request({action: 'preview', id: row.id}));
+          }
+        });
       });
     } catch (error) {
       if (!disposed) history.textContent = error.message;
@@ -192,6 +243,7 @@ export function renderVouchers(root, {req, initialFields = {}, inDialog = false,
     submit.disabled = on;
     fields.disabled = on;
     history?.querySelectorAll('button').forEach(button => {button.disabled = on;});
+    receipt.querySelectorAll('button').forEach(button => {button.disabled = on;});
     const send = preview.querySelector('[data-voucher-send]');
     if (send) send.disabled = on || !!opened?.sent_at;
   }
